@@ -45,16 +45,28 @@ place if we scaled.
                                     └─────────────┘
 ```
 
-**Flow:** The browser `POST`s `{model, query}` to `/api/runs` and reads the
-response body as a stream (fetch + `ReadableStream`, not `EventSource`, so we can
-POST a body). The server opens the OpenAI Responses stream and, for each event,
-does two things in lockstep: appends a row to `events` and writes the event into
-the response stream to the browser (re-framed as SSE: `data: {...}\n\n`). When
-`response.completed` arrives, the server assembles the final response object and
-`UPDATE`s the `runs` row. The client renders incrementally as events arrive.
+**Flow:** The browser `POST`s `{model, query, effort}` to `/api/runs` and reads
+the response body as a stream (fetch + `ReadableStream`, not `EventSource`, so we
+can POST a body). For each event the server **persists the `events` row first,
+then** re-emits it as SSE (`data: {...}\n\n`) — the DB is the source of truth, so
+the browser never sees an event that isn't already stored. Terminal events
+(`response.completed` / `incomplete` / `failed`) write the final status + assembled
+`final_response` to the `runs` row. The client renders incrementally as events arrive.
 
-Persistence happens **server-side during the stream**, so a client disconnect
-never loses data — the run completes and is fully stored regardless.
+**Decoupled pump + cancellation.** The OpenAI consumption runs as a detached
+background task, *not* tied to the response stream's lifecycle, because Next.js
+tears down the awaited request scope on client disconnect (which otherwise
+orphaned runs at `running`). On disconnect/Stop, `req.signal` (and the stream's
+`cancel()`) abort the OpenAI request — stopping token billing — and finalize the
+run as **`cancelled`** (not `failed`); events received before the abort stay
+persisted. Because this SDK's async iterator can hang rather than reject on abort,
+we (a) finalize directly in the disconnect handler and (b) race each iterator step
+against the abort so the pump terminates cleanly instead of leaking.
+
+**Read path (inspection).** `GET /api/runs` lists recent runs and `GET
+/api/runs/:id` returns the run row plus all `events` ordered by `seq`. The UI's
+history rail lists past runs; selecting one **replays** it through the very same
+event handler used for the live stream, fed from stored events instead of SSE.
 
 ---
 
@@ -71,9 +83,10 @@ object.
 |------------------|-------------|--------------------------------------------------|
 | `id`             | uuid PK     | generated server-side                            |
 | `created_at`     | timestamptz | default now()                                    |
-| `model`          | text        | e.g. `gpt-5`                                      |
+| `model`          | text        | e.g. `gpt-5.5`                                    |
 | `query`          | text        | user's prompt                                     |
-| `status`         | text        | `running` \| `completed` \| `failed`             |
+| `effort`         | text        | reasoning effort: `low` \| `medium` \| `high`     |
+| `status`         | text        | `running`\|`completed`\|`incomplete`\|`failed`\|`cancelled` |
 | `final_response` | jsonb       | the assembled `response` object (raw, verbatim)  |
 | `usage`          | jsonb       | token usage from the final response              |
 | `error`          | text        | populated on failure                             |
@@ -225,16 +238,18 @@ documented extension point (§7).
   answers from parametric knowledge yields zero `web_search_call` items. We
   should show an empty-state ("model chose not to search") rather than a blank panel.
 - **Streaming via POST:** `EventSource` can't POST, so the client uses
-  `fetch` + `ReadableStream`. Workable, but auto-reconnect is manual. For a POC,
-  no reconnect — a dropped stream still persists server-side and can be replayed
-  from `events`.
+  `fetch` + `ReadableStream`. No live auto-reconnect, but a finished run can be
+  re-opened from the history rail (replayed from `events`). A run interrupted by
+  disconnect is finalized `cancelled` with the events received so far — it does
+  *not* resume to completion (true resume would need a queue/worker; see Redis).
 - **Long runs / timeouts:** deep-reasoning + multi-search runs can take a while;
   ensure the Node route handler and any proxy don't cut the stream short. Disable
   response buffering on the SSE route.
-- **`include` flags & API drift:** exact `include` keys and event names should be
-  re-verified against the current SDK at build time; event *types* are stable but
-  new ones may appear — the verbatim `events` store means we never lose data even
-  for events we don't yet render.
+- **SDK lags the live API:** this `openai` version types the web-search tool as
+  `web_search_preview` and omits the `web_search_call.action.sources` include
+  literal, yet the live API accepts `web_search` and the include (both verified at
+  runtime). Two localized type escapes cover the gap; re-verify against the SDK at
+  build time. The verbatim `events` store means we never drop events we don't render.
 - **Where Redis would earn its place:** if we wanted multiple browser tabs to
   watch the same run, or to decouple the OpenAI stream from client connections,
   publish events to a Redis channel and have the SSE route subscribe. Out of
