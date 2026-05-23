@@ -108,7 +108,7 @@ in live, plus a collapsible raw log.
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│  [ Model ▾  gpt-5 ]   [ query…                              ] [Run]  │
+│  [Model ▾ gpt-5.5][Effort ▾ medium][ query…              ] [Run]     │
 ├──────────────────────────┬───────────────────────────────────────────┤
 │  SEARCH FAN-OUTS         │  SOURCES                                  │
 │  ┌────────────────────┐  │  • cuomo housing plan — nytimes.com  ↗    │
@@ -127,14 +127,22 @@ in live, plus a collapsible raw log.
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Search fan-outs:** one card per `web_search_call`, showing its sub-query and
-  a status chip that advances `in_progress → searching ✓`. This is the visible
-  "fan-out": the model often issues several searches; each is its own card.
+- **Command bar:** model dropdown, **reasoning-effort selector** (`low` /
+  `medium` / `high`, passed through as `reasoning.effort`), query box, Run button.
+- **Search fan-outs:** one card per `web_search_call`, showing the action it took
+  and a status chip that advances `in_progress → searching ✓`. The action varies —
+  we render all three variants found in `web_search_call.action`:
+  - `search` → 🔍 the sub-query string (the classic fan-out)
+  - `open_page` → 📄 a specific URL the model opened
+  - `find_in_page` → 🔎 a pattern searched *within* an opened page
+  The model often issues several of these; each is its own card.
 - **Sources:** deduped list of cited URLs from text annotations (title + domain
   + outbound link). Grows as citations are emitted.
-- **Reasoning:** the reasoning **summary** streams token-by-token with a live
-  cursor; once `...summary_text.done` fires, the cursor stops and the completed
-  summary stays. (See risk note: OpenAI exposes a *summary*, not raw chain-of-thought.)
+- **Reasoning:** streams token-by-token with a live cursor; once the matching
+  `.done` fires, the cursor stops and the completed text stays. We append deltas
+  from **both** `reasoning_summary_text.delta` and `reasoning_text.delta`, since
+  some models/configs emit reasoning text directly rather than a summary. (See
+  risk note: OpenAI exposes a *summary*, not raw chain-of-thought.)
 - **Answer:** final assembled answer text, also streamed.
 - **Raw log:** collapsible, for the "inspect everything" audience.
 
@@ -142,20 +150,23 @@ in live, plus a collapsible raw log.
 
 ## 5. OpenAI Responses API events → UI mapping
 
-Request: `responses.stream({ model, input, tools: [{type:"web_search"}],
-reasoning: { summary: "detailed" }, include: ["web_search_call.action.sources"] })`.
+Request: `responses.create({ model, input, stream: true, tools:
+[{type:"web_search"}], reasoning: { effort, summary: "detailed" }, include:
+["web_search_call.action.sources"] })`. `effort` comes from the UI selector;
 `reasoning.summary` is required to get reasoning text; `include` surfaces the
 search result sources.
 
 | Event type                                  | What we do                                              |
 |---------------------------------------------|---------------------------------------------------------|
 | `response.created` / `.in_progress`         | mark run started; show spinner                          |
-| `response.output_item.added`                | a new item (reasoning / web_search_call / message) began|
-| `response.web_search_call.in_progress`      | create a fan-out card                                   |
-| `response.web_search_call.searching`        | card → "searching"; show the sub-query                  |
+| `response.output_item.added`                | new item began; if `web_search_call`, create a fan-out card with its `action` |
+| `response.web_search_call.in_progress`      | card → "in progress" (keyed by `item_id`)               |
+| `response.web_search_call.searching`        | card → "searching"                                      |
 | `response.web_search_call.completed`        | card → done ✓                                            |
-| `response.reasoning_summary_part.added`     | open a reasoning block                                  |
+| `response.output_item.done`                 | if `web_search_call`, finalize card `action` + harvest `action.sources` |
+| `response.reasoning_summary_part.added`     | start a new reasoning block (separator)                 |
 | `response.reasoning_summary_text.delta`     | append to live reasoning panel (token stream)           |
+| `response.reasoning_text.delta` / `.done`   | append/freeze reasoning text (direct-text models)       |
 | `response.reasoning_summary_text.done`      | freeze final reasoning text                             |
 | `response.output_text.delta`                | append to live Answer panel                             |
 | `response.output_text.annotation.added`     | add/dedupe a cited URL in Sources                       |
@@ -163,14 +174,20 @@ search result sources.
 | `response.completed`                        | assemble + persist `final_response`; status=completed   |
 | `response.failed` / `error`                 | status=failed; surface error in UI                      |
 
-*Every* event (including ones with no UI role, e.g. `content_part.*`) is still
-written to `events` verbatim. All events carry a `sequence_number` we store as `seq`.
+The `action` (search query, opened URL, in-page pattern) rides on the *item*
+(`output_item.added` / `.done`), not on the `web_search_call.*` progress events —
+those only carry `item_id`, which we use to advance the right card's status.
 
-**Models offered in the dropdown** (reasoning-summary *and* web-search capable):
-`gpt-5`, `gpt-5-mini`, `o4-mini`, `o3`. (Non-reasoning models like `gpt-4.1`
-support web search but produce no reasoning panel, so we exclude them — or could
-list them greyed with a note. Confirm exact availability against the account at
-build time.)
+**Forward-compatibility:** *every* event is written to `events` verbatim,
+including types with no UI role (`content_part.*`) and **types we don't recognize
+at all** — OpenAI adds event types over time, and the raw store must never drop
+one. The UI ignores unrecognized types gracefully (they still appear in the raw
+log). All events carry a `sequence_number` we store as `seq`.
+
+**Models offered in the dropdown** (reasoning + web-search capable), default
+**`gpt-5.5`**: `gpt-5.5`, `gpt-5.4`, `gpt-5`, `gpt-5-mini`, `o4-mini`. Exact model
+IDs should be verified against the live OpenAI model list at build time; the list
+is a single constant, trivial to adjust.
 
 ---
 
