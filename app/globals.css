@@ -2,7 +2,27 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --cl-blue: #104590;
+  --cl-navy: #0d2b5b;
+  --cl-yellow: #ffb800;
+  --cl-ice: #e6eff8;
+  --cl-success: #059669;
+  --cl-warning: #d97706;
+  --cl-error: #ef4444;
+  --cl-slate: #475569;
+  --cl-slate-2: #64748b;
+  --cl-border: #e2e8f0;
+  --cl-bg: #ffffff;
+  --cl-bg-soft: #f8fafc;
+}
+
 html,
 body {
   height: 100%;
+}
+
+body {
+  background: var(--cl-bg);
+  color: var(--cl-slate);
 }
