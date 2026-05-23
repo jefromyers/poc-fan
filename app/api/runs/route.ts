@@ -45,16 +45,13 @@ export async function POST(req: Request) {
     [runId, model, query, effort],
   );
 
-  // Persisting an event must never abort a working stream — log and continue.
+  // Persist an event. Errors propagate so the pump can fail the run rather than
+  // forward an event that isn't in the audit log (the DB is the source of truth).
   const persist = async (seq: number, type: string, payload: unknown) => {
-    try {
-      await pool.query(
-        "INSERT INTO events (run_id, seq, type, payload) VALUES ($1,$2,$3,$4)",
-        [runId, seq, type, JSON.stringify(payload)],
-      );
-    } catch (e) {
-      console.error(`[run ${runId}] persist event ${type} failed:`, e);
-    }
+    await pool.query(
+      "INSERT INTO events (run_id, seq, type, payload) VALUES ($1,$2,$3,$4)",
+      [runId, seq, type, JSON.stringify(payload)],
+    );
   };
 
   // Terminal status writes. `AND status='running'` makes this idempotent and
@@ -160,8 +157,16 @@ export async function POST(req: Request) {
         const s = typeof ev.sequence_number === "number" ? ev.sequence_number : seq++;
 
         // Persist BEFORE forwarding so the DB is the source of truth: the
-        // browser never sees an event that isn't already in the audit log.
-        await persist(s, ev.type, ev);
+        // browser never sees an event that isn't already in the audit log. If
+        // the insert fails, fail the run rather than forward an unstored event.
+        try {
+          await persist(s, ev.type, ev);
+        } catch (e: any) {
+          const message = `persistence failed: ${e?.message ?? String(e)}`;
+          await finalize("failed", null, message);
+          send({ type: "stream.error", error: message });
+          return; // stop forwarding; skip the stream.done below
+        }
         send(ev);
 
         if (ev.type === "response.completed") await finalize("completed", ev.response, null);
