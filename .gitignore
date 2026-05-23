@@ -1,3 +1,13 @@
+### Node / Next.js ###
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# Secrets — never commit
+.env
+.env.local
+
 ### macOS ###
 # General
 .DS_Store
