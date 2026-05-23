@@ -37,5 +37,16 @@ CREATE INDEX IF NOT EXISTS events_run_seq_idx ON events (run_id, seq);
 // schema exists before the first insert without needing a separate migrate step.
 let ready: Promise<void> | null = null;
 export function initDb(): Promise<void> {
-  return (ready ??= pool.query(SCHEMA).then(() => undefined));
+  if (ready) return ready;
+  const p = pool
+    .query(SCHEMA)
+    .then(() => undefined)
+    .catch((err: unknown) => {
+      // Don't cache the failure — a later request should retry (e.g. if the
+      // DB was simply not ready yet).
+      ready = null;
+      throw err;
+    });
+  ready = p;
+  return p;
 }
