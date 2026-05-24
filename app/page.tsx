@@ -21,9 +21,9 @@ import type {
   StreamEvent,
   WebSearchAction,
 } from "@/lib/events";
+import { DOCUMENTED_MODEL_FALLBACK } from "@/lib/model-options";
 import { Markdown } from "./markdown";
 
-const MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5", "gpt-5-mini", "o4-mini"];
 const EFFORTS = ["low", "medium", "high"] as const;
 
 type ViewStatus = "idle" | RunStatus;
@@ -132,7 +132,8 @@ function domain(url: string): string {
 }
 
 export default function Home() {
-  const [model, setModel] = useState(MODELS[0]);
+  const [models, setModels] = useState<string[]>(() => [...DOCUMENTED_MODEL_FALLBACK]);
+  const [model, setModel] = useState<string>(DOCUMENTED_MODEL_FALLBACK[0]);
   const [effort, setEffort] = useState<(typeof EFFORTS)[number]>("medium");
   const [query, setQuery] = useState("");
 
@@ -174,6 +175,27 @@ export default function Home() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mobileHistoryOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadModels() {
+      try {
+        const r = await fetch("/api/models");
+        if (!r.ok) return;
+        const data = await r.json();
+        const next = Array.isArray(data.models) ? data.models.filter(Boolean) : [];
+        if (cancelled || next.length === 0) return;
+        setModels(next);
+        setModel((current) => (next.includes(current) ? current : next[0]));
+      } catch {
+        /* documented fallback remains available */
+      }
+    }
+    loadModels();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function closeMobileHistory() {
     setMobileHistoryOpen(false);
@@ -548,7 +570,7 @@ export default function Home() {
                   disabled={live}
                   className={`h-10 rounded-btn border border-cl-border bg-white px-3 text-sm text-cl-slate disabled:bg-slate-50 disabled:text-slate-400 ${inputFocus}`}
                 >
-                  {MODELS.map((m) => (
+                  {models.map((m) => (
                     <option key={m} value={m}>
                       {m}
                     </option>

@@ -1,13 +1,14 @@
 import OpenAI from "openai";
 import { randomUUID } from "node:crypto";
 import { initDb, pool } from "@/lib/db";
+import { MODEL_CANDIDATES } from "@/lib/model-options";
 
 // Node runtime: we hold a long-lived SSE connection to OpenAI and tee every
 // event to both Postgres and the browser. force-dynamic so it's never cached.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ALLOWED_MODELS = new Set(["gpt-5.5", "gpt-5.4", "gpt-5", "gpt-5-mini", "o4-mini"]);
+const ALLOWED_MODELS = new Set<string>(MODEL_CANDIDATES);
 type Effort = "low" | "medium" | "high";
 const ALLOWED_EFFORT = new Set<string>(["low", "medium", "high"]);
 
