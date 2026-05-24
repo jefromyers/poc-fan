@@ -15,7 +15,12 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import type { OutputItem, RunStatus, StreamEvent, WebSearchAction } from "@/lib/events";
+import type {
+  OutputItem,
+  RunStatus,
+  StreamEvent,
+  WebSearchAction,
+} from "@/lib/events";
 import { Markdown } from "./markdown";
 
 const MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5", "gpt-5-mini", "o4-mini"];
@@ -62,12 +67,20 @@ function describeAction(action?: WebSearchAction): ActionDescription {
       };
     }
     case "open_page":
-      return { icon: FileText, label: "Open", detail: action.url, href: action.url };
+      return {
+        icon: FileText,
+        label: "Open",
+        detail: action.url,
+        href: action.url,
+      };
     case "find_in_page":
       return {
         icon: ScanSearch,
         label: "Find",
-        detail: action.pattern && action.url ? `"${action.pattern}" in ${action.url}` : action.pattern ?? action.url,
+        detail:
+          action.pattern && action.url
+            ? `"${action.pattern}" in ${action.url}`
+            : (action.pattern ?? action.url),
         href: action.url,
       };
     default:
@@ -86,7 +99,8 @@ function normalizeUrl(raw: string): string {
       if (key.toLowerCase().startsWith("utm_")) u.searchParams.delete(key);
     }
     u.hostname = u.hostname.toLowerCase();
-    if (u.pathname.length > 1 && u.pathname.endsWith("/")) u.pathname = u.pathname.slice(0, -1);
+    if (u.pathname.length > 1 && u.pathname.endsWith("/"))
+      u.pathname = u.pathname.slice(0, -1);
     return u.toString();
   } catch {
     return raw;
@@ -190,7 +204,11 @@ export default function Home() {
           byKey.set(key, merged.length);
           merged.push(s);
         } else if (preferIncomingUrl) {
-          merged[existing] = { ...merged[existing], url: s.url, title: s.title || merged[existing].title };
+          merged[existing] = {
+            ...merged[existing],
+            url: s.url,
+            title: s.title || merged[existing].title,
+          };
         }
       }
       return merged;
@@ -198,15 +216,22 @@ export default function Home() {
   }
 
   function setFanoutStatus(itemId: string, next: Fanout["status"]) {
-    setFanouts((prev) => prev.map((f) => (f.id === itemId ? { ...f, status: next } : f)));
+    setFanouts((prev) =>
+      prev.map((f) => (f.id === itemId ? { ...f, status: next } : f)),
+    );
   }
 
   function upsertFanout(item: OutputItem, status: Fanout["status"]) {
     setFanouts((prev) => {
       const idx = prev.findIndex((f) => f.id === item.id);
-      if (idx === -1) return [...prev, { id: item.id, action: item.action, status }];
+      if (idx === -1)
+        return [...prev, { id: item.id, action: item.action, status }];
       const copy = [...prev];
-      copy[idx] = { ...copy[idx], action: item.action ?? copy[idx].action, status };
+      copy[idx] = {
+        ...copy[idx],
+        action: item.action ?? copy[idx].action,
+        status,
+      };
       return copy;
     });
   }
@@ -243,7 +268,8 @@ export default function Home() {
         break;
 
       case "response.output_item.added":
-        if (ev.item.type === "web_search_call") upsertFanout(ev.item, "in_progress");
+        if (ev.item.type === "web_search_call")
+          upsertFanout(ev.item, "in_progress");
         break;
       case "response.web_search_call.in_progress":
         setFanoutStatus(ev.item_id, "in_progress");
@@ -259,7 +285,9 @@ export default function Home() {
           upsertFanout(ev.item, "completed");
           const srcs = ev.item.action?.sources;
           if (Array.isArray(srcs)) {
-            addSources(srcs.map((s) => ({ url: s.url, title: s.title ?? s.url })));
+            addSources(
+              srcs.map((s) => ({ url: s.url, title: s.title ?? s.url })),
+            );
           }
         }
         break;
@@ -286,7 +314,12 @@ export default function Home() {
       case "response.output_text.annotation.added":
         if (ev.annotation.type === "url_citation") {
           addSources(
-            [{ url: ev.annotation.url, title: ev.annotation.title ?? ev.annotation.url }],
+            [
+              {
+                url: ev.annotation.url,
+                title: ev.annotation.title ?? ev.annotation.url,
+              },
+            ],
             { preferIncomingUrl: true },
           );
           const key = normalizeUrl(ev.annotation.url);
@@ -435,8 +468,12 @@ export default function Home() {
             CL
           </div>
           <div className="min-w-0">
-            <div className="text-sm font-extrabold uppercase tracking-wider text-cl-blue">Citation Labs</div>
-            <div className="text-xs font-medium text-cl-slate">Thinking Inspector</div>
+            <div className="text-sm font-extrabold uppercase tracking-wider text-cl-blue">
+              Citation Labs
+            </div>
+            <div className="text-xs font-medium text-cl-slate">
+              Whatchu doin mr robot
+            </div>
           </div>
           <button
             ref={historyButtonRef}
@@ -445,23 +482,34 @@ export default function Home() {
             aria-label="Open history"
             className={`ml-auto inline-flex h-9 items-center gap-2 rounded-btn border border-cl-border bg-white px-3 text-sm font-bold uppercase tracking-wider text-cl-blue hover:bg-cl-ice md:hidden ${focusRing}`}
           >
-            <History className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
+            <History
+              className="h-4 w-4"
+              aria-hidden="true"
+              strokeWidth={1.75}
+            />
             History
           </button>
         </div>
       </header>
 
       <div className="mx-auto flex max-w-7xl">
-        <HistoryRail history={history} runId={runId} live={live} onRefresh={refreshHistory} onReplay={replay} />
+        <HistoryRail
+          history={history}
+          runId={runId}
+          live={live}
+          onRefresh={refreshHistory}
+          onReplay={replay}
+        />
 
         <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-5xl">
             <section className="mb-6">
               <h1 className="text-3xl font-extrabold uppercase tracking-tight text-cl-blue md:text-4xl">
-                Thinking Inspector
+                What are these robots thinking...
               </h1>
               <p className="mt-2 max-w-3xl text-base leading-relaxed text-cl-slate">
-                Pick a model, ask something, and watch it search, read, and reason live.
+                Pick a model, ask something, and watch it search, read, and
+                reason live.
               </p>
             </section>
 
@@ -493,7 +541,9 @@ export default function Home() {
                 <select
                   id="effort"
                   value={effort}
-                  onChange={(e) => setEffort(e.target.value as (typeof EFFORTS)[number])}
+                  onChange={(e) =>
+                    setEffort(e.target.value as (typeof EFFORTS)[number])
+                  }
                   disabled={live}
                   className={`h-10 rounded-btn border border-cl-border bg-white px-3 text-sm text-cl-slate disabled:bg-slate-50 disabled:text-slate-400 ${inputFocus}`}
                 >
@@ -505,7 +555,11 @@ export default function Home() {
                 </select>
               </Field>
 
-              <Field label="Query" htmlFor="query" className="min-w-[16rem] flex-1">
+              <Field
+                label="Query"
+                htmlFor="query"
+                className="min-w-[16rem] flex-1"
+              >
                 <input
                   id="query"
                   type="text"
@@ -550,10 +604,16 @@ export default function Home() {
               className="mb-4 flex flex-wrap items-center gap-4 text-sm text-cl-slate"
             >
               <span className="inline-flex items-center gap-2">
-                <span className="font-bold uppercase tracking-wider text-cl-blue">Status:</span>
+                <span className="font-bold uppercase tracking-wider text-cl-blue">
+                  Status:
+                </span>
                 <StatusBadge status={status} />
               </span>
-              {runId && <span className="select-all font-mono text-xs text-cl-slate">run {runId}</span>}
+              {runId && (
+                <span className="select-all font-mono text-xs text-cl-slate">
+                  run {runId}
+                </span>
+              )}
             </div>
 
             {error && <AlertBlock title="Run failed" message={error} />}
@@ -575,7 +635,11 @@ export default function Home() {
               />
             </section>
 
-            <Panel title="Reasoning" className="mt-4" meta={busy ? "Streaming..." : undefined}>
+            <Panel
+              title="Reasoning"
+              className="mt-4"
+              meta={busy ? "Streaming..." : undefined}
+            >
               {reasoning ? (
                 <Markdown
                   text={reasoning}
@@ -583,15 +647,21 @@ export default function Home() {
                   trailing={busy ? <StreamingCaret /> : null}
                 />
               ) : (
-                <Empty>{busy ? "Reasoning will stream here..." : "No reasoning."}</Empty>
+                <Empty>
+                  {busy ? "Reasoning will stream here..." : "No reasoning."}
+                </Empty>
               )}
               <div className="mt-4 border-l-4 border-cl-blue bg-cl-ice/60 px-4 py-3 text-xs leading-relaxed text-cl-slate">
-                Note: this is the model&apos;s reasoning <em>summary</em>, not its raw chain-of-thought (OpenAI does not
-                expose the latter).
+                Note: this is the model&apos;s reasoning <em>summary</em>, not
+                its raw chain-of-thought (OpenAI does not expose the latter).
               </div>
             </Panel>
 
-            <Panel title="Answer" className="mt-4" meta={busy ? "Streaming..." : undefined}>
+            <Panel
+              title="Answer"
+              className="mt-4"
+              meta={busy ? "Streaming..." : undefined}
+            >
               {answer ? (
                 <Markdown
                   text={answer}
@@ -599,7 +669,9 @@ export default function Home() {
                   trailing={busy ? <StreamingCaret /> : null}
                 />
               ) : (
-                <Empty>{busy ? "The answer will stream here..." : "No answer."}</Empty>
+                <Empty>
+                  {busy ? "The answer will stream here..." : "No answer."}
+                </Empty>
               )}
             </Panel>
 
@@ -625,7 +697,11 @@ export default function Home() {
                 <ul className="space-y-3 text-sm">
                   {sources.map((s) => (
                     <li key={s.url} className="flex min-w-0 items-start gap-2">
-                      <Globe className="mt-0.5 h-4 w-4 shrink-0 text-cl-blue" aria-hidden="true" strokeWidth={1.75} />
+                      <Globe
+                        className="mt-0.5 h-4 w-4 shrink-0 text-cl-blue"
+                        aria-hidden="true"
+                        strokeWidth={1.75}
+                      />
                       <div className="min-w-0">
                         <a
                           href={s.url}
@@ -634,10 +710,16 @@ export default function Home() {
                           className={`inline-flex max-w-full items-center gap-1 font-medium text-cl-blue hover:underline ${focusRing}`}
                         >
                           <span className="truncate">{s.title || s.url}</span>
-                          <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" strokeWidth={1.75} />
+                          <ExternalLink
+                            className="h-3.5 w-3.5 shrink-0"
+                            aria-hidden="true"
+                            strokeWidth={1.75}
+                          />
                           <span className="sr-only">(opens in new tab)</span>
                         </a>
-                        <div className="truncate text-xs text-slate-500">{domain(s.url)}</div>
+                        <div className="truncate text-xs text-slate-500">
+                          {domain(s.url)}
+                        </div>
                       </div>
                     </li>
                   ))}
@@ -646,12 +728,20 @@ export default function Home() {
             </Panel>
 
             <details className="mt-4 rounded-card border border-cl-border bg-white">
-              <summary className={`flex cursor-pointer items-center gap-2 px-5 py-3 text-sm font-bold uppercase tracking-wider text-cl-blue ${focusRing}`}>
-                <Code2 className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
+              <summary
+                className={`flex cursor-pointer items-center gap-2 px-5 py-3 text-sm font-bold uppercase tracking-wider text-cl-blue ${focusRing}`}
+              >
+                <Code2
+                  className="h-4 w-4"
+                  aria-hidden="true"
+                  strokeWidth={1.75}
+                />
                 Raw event log ({raw.length})
               </summary>
               <pre className="max-h-96 overflow-auto border-t border-cl-border bg-cl-bg-soft p-4 font-mono text-[11px] leading-relaxed text-cl-slate">
-                {raw.map((ev, i) => `${i}\t${ev.type}\t${JSON.stringify(ev)}`).join("\n")}
+                {raw
+                  .map((ev, i) => `${i}\t${ev.type}\t${JSON.stringify(ev)}`)
+                  .join("\n")}
               </pre>
             </details>
           </div>
@@ -673,7 +763,9 @@ export default function Home() {
             className="relative h-full w-[min(20rem,calc(100vw-2rem))] overflow-y-auto bg-white shadow-xl"
           >
             <div className="flex items-center justify-between border-b border-cl-border p-4">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-cl-blue">History</h2>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-cl-blue">
+                History
+              </h2>
               <button
                 ref={closeHistoryButtonRef}
                 type="button"
@@ -685,7 +777,12 @@ export default function Home() {
               </button>
             </div>
             <div className="p-4">
-              <HistoryList history={history} runId={runId} live={live} onReplay={replayFromHistory} />
+              <HistoryList
+                history={history}
+                runId={runId}
+                live={live}
+                onReplay={replayFromHistory}
+              />
             </div>
           </aside>
         </div>
@@ -694,7 +791,8 @@ export default function Home() {
   );
 }
 
-const inputFocus = "focus:border-cl-blue focus:outline-none focus:ring-2 focus:ring-cl-blue/20";
+const inputFocus =
+  "focus:border-cl-blue focus:outline-none focus:ring-2 focus:ring-cl-blue/20";
 
 function Field({
   label,
@@ -709,7 +807,10 @@ function Field({
 }) {
   return (
     <div className={`flex flex-col gap-1 ${className}`}>
-      <label htmlFor={htmlFor} className="text-xs font-bold uppercase tracking-wider text-cl-blue">
+      <label
+        htmlFor={htmlFor}
+        className="text-xs font-bold uppercase tracking-wider text-cl-blue"
+      >
         {label}
       </label>
       {children}
@@ -731,9 +832,14 @@ function HistoryRail({
   onReplay: (id: string) => void;
 }) {
   return (
-    <nav aria-label="Run history" className="hidden w-64 shrink-0 border-r border-cl-border bg-white p-4 md:block">
+    <nav
+      aria-label="Run history"
+      className="hidden w-64 shrink-0 border-r border-cl-border bg-white p-4 md:block"
+    >
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-cl-blue">History</h2>
+        <h2 className="text-sm font-bold uppercase tracking-wider text-cl-blue">
+          History
+        </h2>
         <button
           type="button"
           onClick={onRefresh}
@@ -743,7 +849,12 @@ function HistoryRail({
           <RotateCw className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
         </button>
       </div>
-      <HistoryList history={history} runId={runId} live={live} onReplay={onReplay} />
+      <HistoryList
+        history={history}
+        runId={runId}
+        live={live}
+        onReplay={onReplay}
+      />
     </nav>
   );
 }
@@ -759,7 +870,8 @@ function HistoryList({
   live: boolean;
   onReplay: (id: string) => void;
 }) {
-  if (history.length === 0) return <p className="text-sm italic text-slate-500">No runs yet.</p>;
+  if (history.length === 0)
+    return <p className="text-sm italic text-slate-500">No runs yet.</p>;
 
   return (
     <ul className="space-y-2">
@@ -780,10 +892,15 @@ function HistoryList({
                 <span className="font-semibold text-cl-blue">{h.model}</span>
                 <StatusBadge status={h.status} />
               </div>
-              <div className="mt-2 truncate text-sm text-cl-slate" title={h.query_preview || "(empty)"}>
+              <div
+                className="mt-2 truncate text-sm text-cl-slate"
+                title={h.query_preview || "(empty)"}
+              >
                 {h.query_preview || "(empty)"}
               </div>
-              <div className="mt-1 text-xs text-slate-500">{new Date(h.created_at).toLocaleString()}</div>
+              <div className="mt-1 text-xs text-slate-500">
+                {new Date(h.created_at).toLocaleString()}
+              </div>
             </button>
           </li>
         );
@@ -796,27 +913,47 @@ function StatusBadge({ status }: { status: BadgeStatus }) {
   const map: Record<BadgeStatus, { label: string; className: string }> = {
     idle: { label: "Idle", className: "bg-slate-100 text-slate-600" },
     running: { label: "Running", className: "bg-cl-yellow text-cl-navy" },
-    completed: { label: "Completed", className: "bg-cl-success text-slate-900" },
+    completed: {
+      label: "Completed",
+      className: "bg-cl-success text-slate-900",
+    },
     failed: { label: "Failed", className: "bg-cl-error text-slate-900" },
     cancelled: { label: "Cancelled", className: "bg-slate-200 text-slate-700" },
-    incomplete: { label: "Incomplete", className: "bg-cl-warning text-slate-900" },
+    incomplete: {
+      label: "Incomplete",
+      className: "bg-cl-warning text-slate-900",
+    },
     in_progress: { label: "In progress", className: "bg-cl-ice text-cl-blue" },
     searching: { label: "Searching", className: "bg-cl-yellow text-cl-navy" },
   };
   const item = map[status];
 
   return (
-    <span className={`inline-flex shrink-0 rounded-[3px] px-2 py-0.5 text-xs font-bold uppercase tracking-wider ${item.className}`}>
+    <span
+      className={`inline-flex shrink-0 rounded-[3px] px-2 py-0.5 text-xs font-bold uppercase tracking-wider ${item.className}`}
+    >
       {item.label}
     </span>
   );
 }
 
-function KpiCard({ label, value, sublabel }: { label: string; value: number; sublabel: string }) {
+function KpiCard({
+  label,
+  value,
+  sublabel,
+}: {
+  label: string;
+  value: number;
+  sublabel: string;
+}) {
   return (
     <div className="min-w-[180px] flex-1 rounded-card border border-cl-border bg-white p-5">
-      <div className="text-xs font-bold uppercase tracking-wider text-cl-blue">{label}</div>
-      <div className="mt-2 text-3xl font-bold tabular-nums text-cl-blue md:text-4xl xl:text-5xl">{value}</div>
+      <div className="text-xs font-bold uppercase tracking-wider text-cl-blue">
+        {label}
+      </div>
+      <div className="mt-2 text-3xl font-bold tabular-nums text-cl-blue md:text-4xl xl:text-5xl">
+        {value}
+      </div>
       <div className="mt-1 text-sm font-medium text-cl-slate">{sublabel}</div>
     </div>
   );
@@ -834,10 +971,18 @@ function Panel({
   meta?: string;
 }) {
   return (
-    <section className={`rounded-card border border-cl-border bg-white ${className}`}>
+    <section
+      className={`rounded-card border border-cl-border bg-white ${className}`}
+    >
       <div className="flex items-center justify-between gap-3 border-b border-cl-border px-5 py-3">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-cl-blue">{title}</h2>
-        {meta && <span className="rounded-[3px] bg-cl-ice px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-cl-blue">{meta}</span>}
+        <h2 className="text-sm font-bold uppercase tracking-wider text-cl-blue">
+          {title}
+        </h2>
+        {meta && (
+          <span className="rounded-[3px] bg-cl-ice px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-cl-blue">
+            {meta}
+          </span>
+        )}
       </div>
       <div className="p-5">{children}</div>
     </section>
@@ -875,7 +1020,11 @@ function FanoutTable({ fanouts }: { fanouts: Fanout[] }) {
               <tr key={f.id} className="h-9 even:bg-cl-ice/50">
                 <td className="whitespace-nowrap px-3 py-2 font-medium text-cl-slate">
                   <span className="inline-flex items-center gap-2">
-                    <Icon className="h-4 w-4 text-cl-blue" aria-hidden="true" strokeWidth={1.75} />
+                    <Icon
+                      className="h-4 w-4 text-cl-blue"
+                      aria-hidden="true"
+                      strokeWidth={1.75}
+                    />
                     {action.label}
                   </span>
                 </td>
@@ -900,7 +1049,10 @@ function FanoutTable({ fanouts }: { fanouts: Fanout[] }) {
                       <span className="sr-only">(opens in new tab)</span>
                     </a>
                   ) : (
-                    <span className="block whitespace-normal break-words leading-relaxed text-cl-slate" title={detail}>
+                    <span
+                      className="block whitespace-normal break-words leading-relaxed text-cl-slate"
+                      title={detail}
+                    >
                       {detail || "-"}
                     </span>
                   )}
@@ -918,13 +1070,25 @@ function FanoutTable({ fanouts }: { fanouts: Fanout[] }) {
 }
 
 function StreamingCaret() {
-  return <span aria-hidden="true" className="inline-block h-[1em] w-[2px] animate-pulse bg-cl-blue align-[-0.15em]" />;
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-block h-[1em] w-[2px] animate-pulse bg-cl-blue align-[-0.15em]"
+    />
+  );
 }
 
 function AlertBlock({ title, message }: { title: string; message: string }) {
   return (
-    <div role="alert" className="mb-4 flex gap-3 rounded-card border border-l-4 border-cl-border border-l-cl-error bg-cl-ice/40 px-4 py-3">
-      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-cl-error" aria-hidden="true" strokeWidth={1.75} />
+    <div
+      role="alert"
+      className="mb-4 flex gap-3 rounded-card border border-l-4 border-cl-border border-l-cl-error bg-cl-ice/40 px-4 py-3"
+    >
+      <AlertTriangle
+        className="mt-0.5 h-5 w-5 shrink-0 text-cl-error"
+        aria-hidden="true"
+        strokeWidth={1.75}
+      />
       <div>
         <div className="font-bold text-slate-900">{title}</div>
         <div className="text-sm leading-relaxed text-cl-slate">{message}</div>
