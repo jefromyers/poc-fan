@@ -127,6 +127,7 @@ export default function Home() {
 
   const reasoning = reasoningParts.join("\n\n");
   const busy = status === "running";
+  const searchCount = fanouts.filter((f) => f.action?.type === "search").length;
 
   useEffect(() => {
     if (!mobileHistoryOpen) return;
@@ -520,7 +521,11 @@ export default function Home() {
             {error && <AlertBlock title="Run failed" message={error} />}
 
             <section className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <KpiCard label="Fan-outs" value={fanouts.length} sublabel="searches" />
+              <KpiCard
+                label="Actions"
+                value={fanouts.length}
+                sublabel={`${searchCount} ${searchCount === 1 ? "search" : "searches"}`}
+              />
               <KpiCard label="Sources" value={sources.length} sublabel="cited" />
             </section>
 
@@ -552,12 +557,12 @@ export default function Home() {
               )}
             </Panel>
 
-            <Panel title={`Search fan-outs (${fanouts.length})`} className="mt-4">
+            <Panel title={`Actions (${fanouts.length})`} className="mt-4">
               {fanouts.length === 0 ? (
                 <Empty>
                   {busy
-                    ? "Waiting for the model to search..."
-                    : "No searches - the model may answer from its own knowledge."}
+                    ? "Waiting for the model to act..."
+                    : "No actions - the model may answer from its own knowledge."}
                 </Empty>
               ) : (
                 <FanoutTable fanouts={fanouts} />
@@ -798,7 +803,7 @@ function FanoutTable({ fanouts }: { fanouts: Fanout[] }) {
   return (
     <div className="overflow-x-auto rounded-card border border-cl-border">
       <table className="w-full table-fixed border-collapse text-sm">
-        <caption className="sr-only">Search fan-outs</caption>
+        <caption className="sr-only">Actions</caption>
         <thead className="bg-cl-blue text-xs uppercase tracking-wider text-white">
           <tr className="h-11">
             <th scope="col" className="w-28 px-3 py-3 text-left font-bold">
