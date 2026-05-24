@@ -16,6 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { OutputItem, RunStatus, StreamEvent, WebSearchAction } from "@/lib/events";
+import { Markdown } from "./markdown";
 
 const MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5", "gpt-5-mini", "o4-mini"];
 const EFFORTS = ["low", "medium", "high"] as const;
@@ -516,10 +517,11 @@ export default function Home() {
 
             <Panel title="Reasoning" className="mt-4" meta={busy ? "Streaming..." : undefined}>
               {reasoning ? (
-                <pre className="max-w-[72ch] whitespace-pre-wrap break-words font-sans text-base leading-relaxed text-cl-slate">
-                  {reasoning}
-                  {busy && <StreamingCaret />}
-                </pre>
+                <Markdown
+                  text={reasoning}
+                  streaming={busy}
+                  trailing={busy ? <StreamingCaret /> : null}
+                />
               ) : (
                 <Empty>{busy ? "Reasoning will stream here..." : "No reasoning."}</Empty>
               )}
@@ -531,10 +533,11 @@ export default function Home() {
 
             <Panel title="Answer" className="mt-4" meta={busy ? "Streaming..." : undefined}>
               {answer ? (
-                <pre className="max-w-[72ch] whitespace-pre-wrap break-words font-sans text-base leading-relaxed text-cl-slate">
-                  {answer}
-                  {busy && <StreamingCaret />}
-                </pre>
+                <Markdown
+                  text={answer}
+                  streaming={busy}
+                  trailing={busy ? <StreamingCaret /> : null}
+                />
               ) : (
                 <Empty>{busy ? "The answer will stream here..." : "No answer."}</Empty>
               )}
