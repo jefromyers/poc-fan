@@ -514,47 +514,6 @@ export default function Home() {
               <KpiCard label="Sources" value={sources.length} sublabel="cited" />
             </section>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <Panel title={`Search fan-outs (${fanouts.length})`}>
-                {fanouts.length === 0 ? (
-                  <Empty>
-                    {busy
-                      ? "Waiting for the model to search..."
-                      : "No searches - the model may answer from its own knowledge."}
-                  </Empty>
-                ) : (
-                  <FanoutTable fanouts={fanouts} />
-                )}
-              </Panel>
-
-              <Panel title={`Sources (${sources.length})`}>
-                {sources.length === 0 ? (
-                  <Empty>No sources cited yet.</Empty>
-                ) : (
-                  <ul className="space-y-3 text-sm">
-                    {sources.map((s) => (
-                      <li key={s.url} className="flex min-w-0 items-start gap-2">
-                        <Globe className="mt-0.5 h-4 w-4 shrink-0 text-cl-blue" aria-hidden="true" strokeWidth={1.75} />
-                        <div className="min-w-0">
-                          <a
-                            href={s.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className={`inline-flex max-w-full items-center gap-1 font-medium text-cl-blue hover:underline ${focusRing}`}
-                          >
-                            <span className="truncate">{s.title || s.url}</span>
-                            <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" strokeWidth={1.75} />
-                            <span className="sr-only">(opens in new tab)</span>
-                          </a>
-                          <div className="truncate text-xs text-slate-500">{domain(s.url)}</div>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Panel>
-            </div>
-
             <Panel title="Reasoning" className="mt-4" meta={busy ? "Streaming..." : undefined}>
               {reasoning ? (
                 <pre className="max-w-[72ch] whitespace-pre-wrap break-words font-sans text-base leading-relaxed text-cl-slate">
@@ -578,6 +537,45 @@ export default function Home() {
                 </pre>
               ) : (
                 <Empty>{busy ? "The answer will stream here..." : "No answer."}</Empty>
+              )}
+            </Panel>
+
+            <Panel title={`Search fan-outs (${fanouts.length})`} className="mt-4">
+              {fanouts.length === 0 ? (
+                <Empty>
+                  {busy
+                    ? "Waiting for the model to search..."
+                    : "No searches - the model may answer from its own knowledge."}
+                </Empty>
+              ) : (
+                <FanoutTable fanouts={fanouts} />
+              )}
+            </Panel>
+
+            <Panel title={`Sources (${sources.length})`} className="mt-4">
+              {sources.length === 0 ? (
+                <Empty>No sources cited yet.</Empty>
+              ) : (
+                <ul className="space-y-3 text-sm">
+                  {sources.map((s) => (
+                    <li key={s.url} className="flex min-w-0 items-start gap-2">
+                      <Globe className="mt-0.5 h-4 w-4 shrink-0 text-cl-blue" aria-hidden="true" strokeWidth={1.75} />
+                      <div className="min-w-0">
+                        <a
+                          href={s.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={`inline-flex max-w-full items-center gap-1 font-medium text-cl-blue hover:underline ${focusRing}`}
+                        >
+                          <span className="truncate">{s.title || s.url}</span>
+                          <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" strokeWidth={1.75} />
+                          <span className="sr-only">(opens in new tab)</span>
+                        </a>
+                        <div className="truncate text-xs text-slate-500">{domain(s.url)}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               )}
             </Panel>
 
@@ -815,20 +813,20 @@ function FanoutTable({ fanouts }: { fanouts: Fanout[] }) {
                     {action.label}
                   </span>
                 </td>
-                <td className="max-w-0 px-3 py-2">
+                <td className="px-3 py-2 align-top">
                   {action.href ? (
                     <a
                       href={action.href}
                       target="_blank"
                       rel="noreferrer"
                       title={detail}
-                      className={`block truncate font-medium text-cl-blue hover:underline ${focusRing}`}
+                      className={`block whitespace-normal break-words font-medium leading-relaxed text-cl-blue hover:underline ${focusRing}`}
                     >
                       {detail}
                       <span className="sr-only">(opens in new tab)</span>
                     </a>
                   ) : (
-                    <span className="block truncate text-cl-slate" title={detail}>
+                    <span className="block whitespace-normal break-words leading-relaxed text-cl-slate" title={detail}>
                       {detail || "-"}
                     </span>
                   )}
