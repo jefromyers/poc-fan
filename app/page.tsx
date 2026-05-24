@@ -651,7 +651,7 @@ export default function Home() {
             </section>
 
             <Panel
-              title="Reasoning"
+              title="Reasoning Summary"
               className="mt-4"
               meta={busy ? "Streaming..." : undefined}
             >
