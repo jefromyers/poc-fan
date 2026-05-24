@@ -43,6 +43,7 @@ type ActionDescription = {
   icon: LucideIcon;
   label: string;
   detail?: string;
+  details?: string[];
   href?: string;
 };
 
@@ -51,8 +52,15 @@ const focusRing =
 
 function describeAction(action?: WebSearchAction): ActionDescription {
   switch (action?.type) {
-    case "search":
-      return { icon: Search, label: "Search", detail: searchDetail(action) };
+    case "search": {
+      const queries = searchQueries(action);
+      return {
+        icon: Search,
+        label: "Search",
+        detail: queries[0],
+        details: queries.length > 1 ? queries : undefined,
+      };
+    }
     case "open_page":
       return { icon: FileText, label: "Open", detail: action.url, href: action.url };
     case "find_in_page":
@@ -71,11 +79,12 @@ function describeAction(action?: WebSearchAction): ActionDescription {
   }
 }
 
-function searchDetail(action: WebSearchAction): string | undefined {
-  if (Array.isArray(action.queries) && action.queries.length > 0) {
-    return action.queries.filter(Boolean).join(" | ");
+function searchQueries(action: WebSearchAction): string[] {
+  if (Array.isArray(action.queries)) {
+    const filtered = action.queries.filter((q): q is string => Boolean(q));
+    if (filtered.length > 0) return filtered;
   }
-  return action.query;
+  return action.query ? [action.query] : [];
 }
 
 function titleCase(value: string): string {
@@ -817,7 +826,15 @@ function FanoutTable({ fanouts }: { fanouts: Fanout[] }) {
                   </span>
                 </td>
                 <td className="px-3 py-2 align-top">
-                  {action.href ? (
+                  {action.details && action.details.length > 0 ? (
+                    <ul className="list-disc space-y-1 pl-5 leading-relaxed text-cl-slate marker:text-cl-blue">
+                      {action.details.map((q, i) => (
+                        <li key={i} className="whitespace-normal break-words">
+                          {q}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : action.href ? (
                     <a
                       href={action.href}
                       target="_blank"
