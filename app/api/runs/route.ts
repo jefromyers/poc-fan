@@ -1,15 +1,16 @@
 import OpenAI from "openai";
 import { randomUUID } from "node:crypto";
 import { initDb, pool } from "@/lib/db";
+import { MODEL_CANDIDATES } from "@/lib/model-options";
 
 // Node runtime: we hold a long-lived SSE connection to OpenAI and tee every
 // event to both Postgres and the browser. force-dynamic so it's never cached.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ALLOWED_MODELS = new Set(["gpt-5.5", "gpt-5.4", "gpt-5", "gpt-5-mini", "o4-mini"]);
-type Effort = "low" | "medium" | "high";
-const ALLOWED_EFFORT = new Set<string>(["low", "medium", "high"]);
+const ALLOWED_MODELS = new Set<string>(MODEL_CANDIDATES);
+type Effort = "none" | "low" | "medium" | "high" | "xhigh";
+const ALLOWED_EFFORT = new Set<string>(["none", "low", "medium", "high", "xhigh"]);
 
 // GET /api/runs — recent runs for the history rail.
 export async function GET() {
@@ -131,7 +132,9 @@ export async function POST(req: Request) {
         model,
         input: query,
         stream: true,
-        reasoning: { effort, summary: "detailed" },
+        // This SDK version's reasoning effort union lags the documented values
+        // exposed in the UI (`none` and `xhigh`), so keep the escape localized.
+        reasoning: { effort: effort as any, summary: "auto" },
         // Two fields where this SDK version's types lag the live API (both
         // verified working at runtime): the tool is "web_search" (SDK only
         // types "web_search_preview"), and the include literal below isn't in
