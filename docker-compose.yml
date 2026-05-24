@@ -18,7 +18,7 @@ services:
   web:
     build: .
     ports:
-      - "3000:3000"
+      - "3009:3000"
     environment:
       DATABASE_URL: postgres://app:app@db:5432/app
       OPENAI_API_KEY: ${OPENAI_API_KEY}
