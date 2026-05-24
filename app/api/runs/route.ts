@@ -134,7 +134,7 @@ export async function POST(req: Request) {
         stream: true,
         // This SDK version's reasoning effort union lags the documented values
         // exposed in the UI (`none` and `xhigh`), so keep the escape localized.
-        reasoning: { effort: effort as any, summary: "detailed" },
+        reasoning: { effort: effort as any, summary: "auto" },
         // Two fields where this SDK version's types lag the live API (both
         // verified working at runtime): the tool is "web_search" (SDK only
         // types "web_search_preview"), and the include literal below isn't in
