@@ -79,6 +79,20 @@ function describeAction(action?: WebSearchAction): ActionDescription {
   }
 }
 
+function normalizeUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    for (const key of [...u.searchParams.keys()]) {
+      if (key.toLowerCase().startsWith("utm_")) u.searchParams.delete(key);
+    }
+    u.hostname = u.hostname.toLowerCase();
+    if (u.pathname.length > 1 && u.pathname.endsWith("/")) u.pathname = u.pathname.slice(0, -1);
+    return u.toString();
+  } catch {
+    return raw;
+  }
+}
+
 function searchQueries(action: WebSearchAction): string[] {
   if (Array.isArray(action.queries)) {
     const filtered = action.queries.filter((q): q is string => Boolean(q));
@@ -116,6 +130,7 @@ export default function Home() {
   const [fanouts, setFanouts] = useState<Fanout[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
   const [citedUrls, setCitedUrls] = useState<Set<string>>(() => new Set());
+  const [citationCount, setCitationCount] = useState(0);
   const [reasoningParts, setReasoningParts] = useState<string[]>([]);
   const [answer, setAnswer] = useState("");
   const [raw, setRaw] = useState<StreamEvent[]>([]);
@@ -153,20 +168,29 @@ export default function Home() {
     setFanouts([]);
     setSources([]);
     setCitedUrls(new Set());
+    setCitationCount(0);
     setReasoningParts([]);
     setAnswer("");
     setRaw([]);
   }
 
-  function addSources(incoming: Source[]) {
+  function addSources(incoming: Source[], { preferIncomingUrl = false } = {}) {
     if (incoming.length === 0) return;
     setSources((prev) => {
-      const seen = new Set(prev.map((s) => s.url));
-      const merged = [...prev];
+      const byKey = new Map<string, number>();
+      const merged = prev.map((s, i) => {
+        byKey.set(normalizeUrl(s.url), i);
+        return s;
+      });
       for (const s of incoming) {
-        if (s.url && !seen.has(s.url)) {
-          seen.add(s.url);
+        if (!s.url) continue;
+        const key = normalizeUrl(s.url);
+        const existing = byKey.get(key);
+        if (existing === undefined) {
+          byKey.set(key, merged.length);
           merged.push(s);
+        } else if (preferIncomingUrl) {
+          merged[existing] = { ...merged[existing], url: s.url, title: s.title || merged[existing].title };
         }
       }
       return merged;
@@ -261,13 +285,18 @@ export default function Home() {
         break;
       case "response.output_text.annotation.added":
         if (ev.annotation.type === "url_citation") {
-          addSources([{ url: ev.annotation.url, title: ev.annotation.title ?? ev.annotation.url }]);
+          addSources(
+            [{ url: ev.annotation.url, title: ev.annotation.title ?? ev.annotation.url }],
+            { preferIncomingUrl: true },
+          );
+          const key = normalizeUrl(ev.annotation.url);
           setCitedUrls((prev) => {
-            if (prev.has(ev.annotation.url)) return prev;
+            if (prev.has(key)) return prev;
             const next = new Set(prev);
-            next.add(ev.annotation.url);
+            next.add(key);
             return next;
           });
+          setCitationCount((n) => n + 1);
         }
         break;
 
@@ -538,7 +567,11 @@ export default function Home() {
               <KpiCard
                 label="Sources"
                 value={sources.length}
-                sublabel={`retrieved${citedCount > 0 ? ` · ${citedCount} cited` : ""}`}
+                sublabel={
+                  citedCount > 0
+                    ? `retrieved · ${citedCount} sources cited (${citationCount} ${citationCount === 1 ? "reference" : "references"})`
+                    : "retrieved"
+                }
               />
             </section>
 
