@@ -115,6 +115,7 @@ export default function Home() {
 
   const [fanouts, setFanouts] = useState<Fanout[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
+  const [citedUrls, setCitedUrls] = useState<Set<string>>(() => new Set());
   const [reasoningParts, setReasoningParts] = useState<string[]>([]);
   const [answer, setAnswer] = useState("");
   const [raw, setRaw] = useState<StreamEvent[]>([]);
@@ -128,6 +129,7 @@ export default function Home() {
   const reasoning = reasoningParts.join("\n\n");
   const busy = status === "running";
   const searchCount = fanouts.filter((f) => f.action?.type === "search").length;
+  const citedCount = citedUrls.size;
 
   useEffect(() => {
     if (!mobileHistoryOpen) return;
@@ -150,6 +152,7 @@ export default function Home() {
     setError(null);
     setFanouts([]);
     setSources([]);
+    setCitedUrls(new Set());
     setReasoningParts([]);
     setAnswer("");
     setRaw([]);
@@ -259,6 +262,12 @@ export default function Home() {
       case "response.output_text.annotation.added":
         if (ev.annotation.type === "url_citation") {
           addSources([{ url: ev.annotation.url, title: ev.annotation.title ?? ev.annotation.url }]);
+          setCitedUrls((prev) => {
+            if (prev.has(ev.annotation.url)) return prev;
+            const next = new Set(prev);
+            next.add(ev.annotation.url);
+            return next;
+          });
         }
         break;
 
@@ -526,7 +535,11 @@ export default function Home() {
                 value={fanouts.length}
                 sublabel={`${searchCount} ${searchCount === 1 ? "search" : "searches"}`}
               />
-              <KpiCard label="Sources" value={sources.length} sublabel="cited" />
+              <KpiCard
+                label="Sources"
+                value={sources.length}
+                sublabel={`retrieved${citedCount > 0 ? ` · ${citedCount} cited` : ""}`}
+              />
             </section>
 
             <Panel title="Reasoning" className="mt-4" meta={busy ? "Streaming..." : undefined}>
@@ -569,9 +582,12 @@ export default function Home() {
               )}
             </Panel>
 
-            <Panel title={`Sources (${sources.length})`} className="mt-4">
+            <Panel
+              title={`Sources (${sources.length} retrieved${citedCount > 0 ? ` · ${citedCount} cited` : ""})`}
+              className="mt-4"
+            >
               {sources.length === 0 ? (
-                <Empty>No sources cited yet.</Empty>
+                <Empty>No sources retrieved yet.</Empty>
               ) : (
                 <ul className="space-y-3 text-sm">
                   {sources.map((s) => (
