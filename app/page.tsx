@@ -672,6 +672,47 @@ export default function Home() {
               />
             </section>
 
+            <details className="mb-4 rounded-card border border-cl-border bg-white px-4 py-3 text-sm text-cl-slate">
+              <summary
+                className={`cursor-pointer text-xs font-bold uppercase tracking-wider text-cl-blue ${focusRing}`}
+              >
+                What counts mean
+              </summary>
+              <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                <div>
+                  <dt className="font-bold text-cl-blue">Actions</dt>
+                  <dd>
+                    <code>web_search_call</code> output items.
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-cl-blue">Search actions</dt>
+                  <dd>
+                    <code>web_search_call</code> items where{" "}
+                    <code>action.type === &quot;search&quot;</code>.
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-cl-blue">Consulted URLs</dt>
+                  <dd>
+                    URLs from <code>web_search_call.action.sources</code>.
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-cl-blue">Cited URLs</dt>
+                  <dd>
+                    Unique URLs from <code>url_citation</code> annotations.
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-cl-blue">References</dt>
+                  <dd>
+                    Total <code>url_citation</code> annotation events.
+                  </dd>
+                </div>
+              </dl>
+            </details>
+
             <Panel
               title="Reasoning Summary"
               className="mt-4"
