@@ -143,6 +143,9 @@ export default function Home() {
 
   const [fanouts, setFanouts] = useState<Fanout[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
+  const [consultedUrls, setConsultedUrls] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [citedUrls, setCitedUrls] = useState<Set<string>>(() => new Set());
   const [citationCount, setCitationCount] = useState(0);
   const [reasoningParts, setReasoningParts] = useState<string[]>([]);
@@ -158,6 +161,7 @@ export default function Home() {
   const reasoning = reasoningParts.join("\n\n");
   const busy = status === "running";
   const searchCount = fanouts.filter((f) => f.action?.type === "search").length;
+  const consultedCount = consultedUrls.size;
   const citedCount = citedUrls.size;
 
   useEffect(() => {
@@ -181,6 +185,7 @@ export default function Home() {
     setError(null);
     setFanouts([]);
     setSources([]);
+    setConsultedUrls(new Set());
     setCitedUrls(new Set());
     setCitationCount(0);
     setReasoningParts([]);
@@ -212,6 +217,17 @@ export default function Home() {
         }
       }
       return merged;
+    });
+  }
+
+  function addConsultedUrls(incoming: Source[]) {
+    if (incoming.length === 0) return;
+    setConsultedUrls((prev) => {
+      const next = new Set(prev);
+      for (const s of incoming) {
+        if (s.url) next.add(normalizeUrl(s.url));
+      }
+      return next;
     });
   }
 
@@ -285,9 +301,12 @@ export default function Home() {
           upsertFanout(ev.item, "completed");
           const srcs = ev.item.action?.sources;
           if (Array.isArray(srcs)) {
-            addSources(
-              srcs.map((s) => ({ url: s.url, title: s.title ?? s.url })),
-            );
+            const nextSources = srcs.map((s) => ({
+              url: s.url,
+              title: s.title ?? s.url,
+            }));
+            addConsultedUrls(nextSources);
+            addSources(nextSources);
           }
         }
         break;
@@ -624,14 +643,10 @@ export default function Home() {
                 value={fanouts.length}
                 sublabel={`${searchCount} ${searchCount === 1 ? "search" : "searches"}`}
               />
-              <KpiCard
-                label="Sources"
-                value={sources.length}
-                sublabel={
-                  citedCount > 0
-                    ? `consulted · ${citedCount} sources cited (${citationCount} ${citationCount === 1 ? "reference" : "references"})`
-                    : "consulted"
-                }
+              <SourceMetrics
+                consultedCount={consultedCount}
+                citedCount={citedCount}
+                referenceCount={citationCount}
               />
             </section>
 
@@ -688,7 +703,7 @@ export default function Home() {
             </Panel>
 
             <Panel
-              title={`Sources (${sources.length} consulted${citedCount > 0 ? ` · ${citedCount} cited` : ""})`}
+              title={`Sources (${consultedCount} consulted${citedCount > 0 ? ` · ${citedCount} cited` : ""})`}
               className="mt-4"
             >
               {sources.length === 0 ? (
@@ -955,6 +970,42 @@ function KpiCard({
         {value}
       </div>
       <div className="mt-1 text-sm font-medium text-cl-slate">{sublabel}</div>
+    </div>
+  );
+}
+
+function SourceMetrics({
+  consultedCount,
+  citedCount,
+  referenceCount,
+}: {
+  consultedCount: number;
+  citedCount: number;
+  referenceCount: number;
+}) {
+  return (
+    <div className="min-w-[180px] flex-1 rounded-card border border-cl-border bg-white p-5">
+      <div className="text-xs font-bold uppercase tracking-wider text-cl-blue">
+        Sources
+      </div>
+      <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <SourceMetric label="Consulted URLs" value={consultedCount} />
+        <SourceMetric label="Cited URLs" value={citedCount} />
+        <SourceMetric label="References" value={referenceCount} />
+      </dl>
+    </div>
+  );
+}
+
+function SourceMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <dt className="text-xs font-bold uppercase tracking-wider text-cl-slate">
+        {label}
+      </dt>
+      <dd className="mt-1 text-2xl font-bold tabular-nums text-cl-blue md:text-3xl">
+        {value}
+      </dd>
     </div>
   );
 }
