@@ -51,7 +51,7 @@ const focusRing =
 function describeAction(action?: WebSearchAction): ActionDescription {
   switch (action?.type) {
     case "search":
-      return { icon: Search, label: "Search", detail: action.query };
+      return { icon: Search, label: "Search", detail: searchDetail(action) };
     case "open_page":
       return { icon: FileText, label: "Open", detail: action.url, href: action.url };
     case "find_in_page":
@@ -68,6 +68,13 @@ function describeAction(action?: WebSearchAction): ActionDescription {
         detail: action ? JSON.stringify(action) : undefined,
       };
   }
+}
+
+function searchDetail(action: WebSearchAction): string | undefined {
+  if (Array.isArray(action.queries) && action.queries.length > 0) {
+    return action.queries.filter(Boolean).join(" | ");
+  }
+  return action.query;
 }
 
 function titleCase(value: string): string {
@@ -507,7 +514,7 @@ export default function Home() {
               <KpiCard label="Sources" value={sources.length} sublabel="cited" />
             </section>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <Panel title={`Search fan-outs (${fanouts.length})`}>
                 {fanouts.length === 0 ? (
                   <Empty>
@@ -780,17 +787,17 @@ function Empty({ children }: { children: ReactNode }) {
 function FanoutTable({ fanouts }: { fanouts: Fanout[] }) {
   return (
     <div className="overflow-x-auto rounded-card border border-cl-border">
-      <table className="w-full border-collapse text-sm">
+      <table className="w-full table-fixed border-collapse text-sm">
         <caption className="sr-only">Search fan-outs</caption>
         <thead className="bg-cl-blue text-xs uppercase tracking-wider text-white">
           <tr className="h-11">
-            <th scope="col" className="w-[120px] px-3 py-3 text-left font-bold">
+            <th scope="col" className="w-28 px-3 py-3 text-left font-bold">
               Action
             </th>
-            <th scope="col" className="min-w-[260px] px-3 py-3 text-left font-bold">
+            <th scope="col" className="px-3 py-3 text-left font-bold">
               Query / URL
             </th>
-            <th scope="col" className="w-[140px] px-3 py-3 text-left font-bold">
+            <th scope="col" className="w-36 px-3 py-3 text-left font-bold">
               Status
             </th>
           </tr>
