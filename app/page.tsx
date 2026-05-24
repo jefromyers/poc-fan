@@ -24,7 +24,7 @@ import type {
 import { DOCUMENTED_MODEL_FALLBACK } from "@/lib/model-options";
 import { Markdown } from "./markdown";
 
-const EFFORTS = ["low", "medium", "high"] as const;
+const EFFORTS = ["none", "low", "medium", "high", "xhigh"] as const;
 
 type ViewStatus = "idle" | RunStatus;
 type BadgeStatus = ViewStatus | Fanout["status"];
