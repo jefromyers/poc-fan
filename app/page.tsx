@@ -629,8 +629,8 @@ export default function Home() {
                 value={sources.length}
                 sublabel={
                   citedCount > 0
-                    ? `retrieved · ${citedCount} sources cited (${citationCount} ${citationCount === 1 ? "reference" : "references"})`
-                    : "retrieved"
+                    ? `consulted · ${citedCount} sources cited (${citationCount} ${citationCount === 1 ? "reference" : "references"})`
+                    : "consulted"
                 }
               />
             </section>
@@ -688,11 +688,11 @@ export default function Home() {
             </Panel>
 
             <Panel
-              title={`Sources (${sources.length} retrieved${citedCount > 0 ? ` · ${citedCount} cited` : ""})`}
+              title={`Sources (${sources.length} consulted${citedCount > 0 ? ` · ${citedCount} cited` : ""})`}
               className="mt-4"
             >
               {sources.length === 0 ? (
-                <Empty>No sources retrieved yet.</Empty>
+                <Empty>No sources consulted yet.</Empty>
               ) : (
                 <ul className="space-y-3 text-sm">
                   {sources.map((s) => (
