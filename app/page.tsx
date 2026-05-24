@@ -1,12 +1,27 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  AlertTriangle,
+  Code2,
+  Dot,
+  ExternalLink,
+  FileText,
+  Globe,
+  History,
+  RotateCw,
+  ScanSearch,
+  Search,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import type { OutputItem, RunStatus, StreamEvent, WebSearchAction } from "@/lib/events";
 
 const MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5", "gpt-5-mini", "o4-mini"];
 const EFFORTS = ["low", "medium", "high"] as const;
 
 type ViewStatus = "idle" | RunStatus;
+type BadgeStatus = ViewStatus | Fanout["status"];
 
 type Fanout = {
   id: string;
@@ -23,17 +38,51 @@ type RunSummary = {
   query_preview: string;
 };
 
-function describeAction(action?: WebSearchAction): { icon: string; label: string; detail?: string } {
+type ActionDescription = {
+  icon: LucideIcon;
+  label: string;
+  detail?: string;
+  href?: string;
+};
+
+const focusRing =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cl-blue focus-visible:ring-offset-2";
+
+function describeAction(action?: WebSearchAction): ActionDescription {
   switch (action?.type) {
     case "search":
-      return { icon: "🔍", label: "search", detail: action.query };
+      return { icon: Search, label: "Search", detail: searchDetail(action) };
     case "open_page":
-      return { icon: "📄", label: "open page", detail: action.url };
+      return { icon: FileText, label: "Open", detail: action.url, href: action.url };
     case "find_in_page":
-      return { icon: "🔎", label: "find in page", detail: `“${action.pattern}” in ${action.url}` };
+      return {
+        icon: ScanSearch,
+        label: "Find",
+        detail: action.pattern && action.url ? `"${action.pattern}" in ${action.url}` : action.pattern ?? action.url,
+        href: action.url,
+      };
     default:
-      return { icon: "•", label: action?.type ?? "action", detail: action ? JSON.stringify(action) : undefined };
+      return {
+        icon: Dot,
+        label: titleCase(action?.type ?? "action"),
+        detail: action ? JSON.stringify(action) : undefined,
+      };
   }
+}
+
+function searchDetail(action: WebSearchAction): string | undefined {
+  if (Array.isArray(action.queries) && action.queries.length > 0) {
+    return action.queries.filter(Boolean).join(" | ");
+  }
+  return action.query;
+}
+
+function titleCase(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function domain(url: string): string {
@@ -61,10 +110,29 @@ export default function Home() {
   const [raw, setRaw] = useState<StreamEvent[]>([]);
 
   const [history, setHistory] = useState<RunSummary[]>([]);
+  const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const historyButtonRef = useRef<HTMLButtonElement | null>(null);
+  const closeHistoryButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const reasoning = reasoningParts.join("\n\n");
   const busy = status === "running";
+
+  useEffect(() => {
+    if (!mobileHistoryOpen) return;
+
+    closeHistoryButtonRef.current?.focus();
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") closeMobileHistory();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mobileHistoryOpen]);
+
+  function closeMobileHistory() {
+    setMobileHistoryOpen(false);
+    window.setTimeout(() => historyButtonRef.current?.focus(), 0);
+  }
 
   function reset() {
     setRunId(null);
@@ -167,7 +235,7 @@ export default function Home() {
         break;
       case "response.reasoning_summary_text.done":
       case "response.reasoning_text.done":
-        // Canonical final text — replace accumulated deltas (guards missed frames).
+        // Canonical final text - replace accumulated deltas (guards missed frames).
         finalizeReasoning(ev.text);
         break;
 
@@ -305,248 +373,488 @@ export default function Home() {
     }
   }
 
+  function replayFromHistory(id: string) {
+    setMobileHistoryOpen(false);
+    replay(id);
+  }
+
   return (
-    <div className="flex min-h-screen">
-      {/* History rail */}
-      <aside className="hidden w-64 shrink-0 border-r border-slate-800 bg-slate-900/50 p-3 md:block">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">History</h2>
-          <button onClick={refreshHistory} className="text-xs text-slate-500 hover:text-slate-300" title="Refresh">
-            ↻
+    <div className="min-h-screen bg-cl-bg text-cl-slate">
+      <header className="border-b border-cl-border bg-white">
+        <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-btn bg-cl-blue text-xs font-extrabold tracking-wide text-white">
+            CL
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-extrabold uppercase tracking-wider text-cl-blue">Citation Labs</div>
+            <div className="text-xs font-medium text-cl-slate">Thinking Inspector</div>
+          </div>
+          <button
+            ref={historyButtonRef}
+            type="button"
+            onClick={() => setMobileHistoryOpen(true)}
+            aria-label="Open history"
+            className={`ml-auto inline-flex h-9 items-center gap-2 rounded-btn border border-cl-border bg-white px-3 text-sm font-bold uppercase tracking-wider text-cl-blue hover:bg-cl-ice md:hidden ${focusRing}`}
+          >
+            <History className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
+            History
           </button>
         </div>
-        <ul className="space-y-1">
-          {history.length === 0 && <li className="text-xs italic text-slate-600">No runs yet.</li>}
-          {history.map((h) => (
-            <li key={h.id}>
-              <button
-                onClick={() => replay(h.id)}
-                disabled={live}
-                className={`w-full rounded p-2 text-left text-xs hover:bg-slate-800 disabled:opacity-40 ${
-                  h.id === runId ? "bg-slate-800 ring-1 ring-slate-700" : ""
-                }`}
-              >
-                <div className="flex items-center justify-between gap-1">
-                  <span className="font-mono text-slate-300">{h.model}</span>
-                  <StatusDot status={h.status} />
-                </div>
-                <div className="truncate text-slate-400">{h.query_preview || "(empty)"}</div>
-                <div className="text-[10px] text-slate-600">{new Date(h.created_at).toLocaleString()}</div>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </aside>
+      </header>
 
-      <main className="mx-auto max-w-5xl flex-1 p-6">
-        <header className="mb-4">
-          <h1 className="text-xl font-semibold">Model Thinking Inspector</h1>
-          <p className="text-sm text-slate-400">
-            Pick a model, ask something, and watch it search, read, and reason — live.
-          </p>
-        </header>
+      <div className="mx-auto flex max-w-7xl">
+        <HistoryRail history={history} runId={runId} live={live} onRefresh={refreshHistory} onReplay={replay} />
 
-        {/* Command bar */}
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 p-3">
-          <select
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            disabled={live}
-            className="rounded border border-slate-700 bg-slate-800 px-2 py-2 text-sm"
-          >
-            {MODELS.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-5xl">
+            <section className="mb-6">
+              <h1 className="text-3xl font-extrabold uppercase tracking-tight text-cl-blue md:text-4xl">
+                Thinking Inspector
+              </h1>
+              <p className="mt-2 max-w-3xl text-base leading-relaxed text-cl-slate">
+                Pick a model, ask something, and watch it search, read, and reason live.
+              </p>
+            </section>
 
-          <select
-            value={effort}
-            onChange={(e) => setEffort(e.target.value as (typeof EFFORTS)[number])}
-            disabled={live}
-            className="rounded border border-slate-700 bg-slate-800 px-2 py-2 text-sm"
-            title="reasoning.effort"
-          >
-            {EFFORTS.map((e) => (
-              <option key={e} value={e}>
-                effort: {e}
-              </option>
-            ))}
-          </select>
-
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") run();
-            }}
-            placeholder="Ask something that needs current info…"
-            disabled={live}
-            className="min-w-[16rem] flex-1 rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm"
-          />
-
-          {live ? (
-            <button
-              onClick={stop}
-              className="rounded bg-red-600 px-4 py-2 text-sm font-medium hover:bg-red-500"
+            <form
+              role="search"
+              onSubmit={(e) => {
+                e.preventDefault();
+                run();
+              }}
+              className="mb-4 flex flex-wrap items-end gap-3 rounded-card border border-cl-border bg-white p-4"
             >
-              Stop
-            </button>
-          ) : (
-            <button
-              onClick={run}
-              disabled={!query.trim()}
-              className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-40"
+              <Field label="Model" htmlFor="model">
+                <select
+                  id="model"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  disabled={live}
+                  className={`h-10 rounded-btn border border-cl-border bg-white px-3 text-sm text-cl-slate disabled:bg-slate-50 disabled:text-slate-400 ${inputFocus}`}
+                >
+                  {MODELS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Reasoning Effort" htmlFor="effort">
+                <select
+                  id="effort"
+                  value={effort}
+                  onChange={(e) => setEffort(e.target.value as (typeof EFFORTS)[number])}
+                  disabled={live}
+                  className={`h-10 rounded-btn border border-cl-border bg-white px-3 text-sm text-cl-slate disabled:bg-slate-50 disabled:text-slate-400 ${inputFocus}`}
+                >
+                  {EFFORTS.map((e) => (
+                    <option key={e} value={e}>
+                      {e}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Query" htmlFor="query" className="min-w-[16rem] flex-1">
+                <input
+                  id="query"
+                  type="text"
+                  required
+                  aria-describedby="query-help"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Ask something that needs current info..."
+                  disabled={live}
+                  className={`h-10 w-full rounded-btn border border-cl-border bg-white px-3 text-sm text-cl-slate placeholder:text-slate-400 disabled:bg-slate-50 disabled:text-slate-400 ${inputFocus}`}
+                />
+                <span id="query-help" className="sr-only">
+                  Press Enter to run.
+                </span>
+              </Field>
+
+              {live ? (
+                <button
+                  type="button"
+                  onClick={stop}
+                  aria-label="Stop run"
+                  className={`h-10 w-full rounded-btn border border-cl-error bg-white px-6 text-sm font-bold uppercase tracking-wider text-cl-error transition hover:bg-red-50 sm:w-auto ${focusRing}`}
+                >
+                  Stop
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!query.trim()}
+                  aria-busy={live}
+                  className={`h-10 w-full rounded-btn bg-cl-yellow px-6 text-sm font-bold uppercase tracking-wider text-cl-navy transition hover:brightness-95 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto ${focusRing}`}
+                >
+                  Run
+                </button>
+              )}
+            </form>
+
+            <div
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className="mb-4 flex flex-wrap items-center gap-4 text-sm text-cl-slate"
             >
-              Run
-            </button>
-          )}
-        </div>
+              <span className="inline-flex items-center gap-2">
+                <span className="font-bold uppercase tracking-wider text-cl-blue">Status:</span>
+                <StatusBadge status={status} />
+              </span>
+              {runId && <span className="select-all font-mono text-xs text-cl-slate">run {runId}</span>}
+            </div>
 
-        {/* Status line */}
-        <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-slate-400">
-          <span>
-            status: <span className={statusColor(status)}>{status}</span>
-          </span>
-          {runId && <span className="font-mono">run {runId}</span>}
-          {error && <span className="text-red-400">{error}</span>}
-        </div>
+            {error && <AlertBlock title="Run failed" message={error} />}
 
-        {/* Dashboard */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Panel title={`Search fan-outs (${fanouts.length})`}>
-            {fanouts.length === 0 ? (
-              <Empty>
-                {busy
-                  ? "Waiting for the model to search…"
-                  : "No searches — the model may answer from its own knowledge."}
-              </Empty>
-            ) : (
-              <ul className="space-y-2">
-                {fanouts.map((f) => {
-                  const a = describeAction(f.action);
-                  return (
-                    <li key={f.id} className="rounded border border-slate-800 bg-slate-900/60 p-2 text-sm">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate">
-                          <span className="mr-1">{a.icon}</span>
-                          <span className="text-slate-400">{a.label}</span>
-                          {a.detail && <span className="ml-1">{a.detail}</span>}
-                        </span>
-                        <StatusChip status={f.status} />
+            <section className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <KpiCard label="Fan-outs" value={fanouts.length} sublabel="searches" />
+              <KpiCard label="Sources" value={sources.length} sublabel="cited" />
+            </section>
+
+            <Panel title="Reasoning" className="mt-4" meta={busy ? "Streaming..." : undefined}>
+              {reasoning ? (
+                <pre className="max-w-[72ch] whitespace-pre-wrap break-words font-sans text-base leading-relaxed text-cl-slate">
+                  {reasoning}
+                  {busy && <StreamingCaret />}
+                </pre>
+              ) : (
+                <Empty>{busy ? "Reasoning will stream here..." : "No reasoning."}</Empty>
+              )}
+              <div className="mt-4 border-l-4 border-cl-blue bg-cl-ice/60 px-4 py-3 text-xs leading-relaxed text-cl-slate">
+                Note: this is the model&apos;s reasoning <em>summary</em>, not its raw chain-of-thought (OpenAI does not
+                expose the latter).
+              </div>
+            </Panel>
+
+            <Panel title="Answer" className="mt-4" meta={busy ? "Streaming..." : undefined}>
+              {answer ? (
+                <pre className="max-w-[72ch] whitespace-pre-wrap break-words font-sans text-base leading-relaxed text-cl-slate">
+                  {answer}
+                  {busy && <StreamingCaret />}
+                </pre>
+              ) : (
+                <Empty>{busy ? "The answer will stream here..." : "No answer."}</Empty>
+              )}
+            </Panel>
+
+            <Panel title={`Search fan-outs (${fanouts.length})`} className="mt-4">
+              {fanouts.length === 0 ? (
+                <Empty>
+                  {busy
+                    ? "Waiting for the model to search..."
+                    : "No searches - the model may answer from its own knowledge."}
+                </Empty>
+              ) : (
+                <FanoutTable fanouts={fanouts} />
+              )}
+            </Panel>
+
+            <Panel title={`Sources (${sources.length})`} className="mt-4">
+              {sources.length === 0 ? (
+                <Empty>No sources cited yet.</Empty>
+              ) : (
+                <ul className="space-y-3 text-sm">
+                  {sources.map((s) => (
+                    <li key={s.url} className="flex min-w-0 items-start gap-2">
+                      <Globe className="mt-0.5 h-4 w-4 shrink-0 text-cl-blue" aria-hidden="true" strokeWidth={1.75} />
+                      <div className="min-w-0">
+                        <a
+                          href={s.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={`inline-flex max-w-full items-center gap-1 font-medium text-cl-blue hover:underline ${focusRing}`}
+                        >
+                          <span className="truncate">{s.title || s.url}</span>
+                          <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" strokeWidth={1.75} />
+                          <span className="sr-only">(opens in new tab)</span>
+                        </a>
+                        <div className="truncate text-xs text-slate-500">{domain(s.url)}</div>
                       </div>
                     </li>
-                  );
-                })}
-              </ul>
-            )}
-          </Panel>
+                  ))}
+                </ul>
+              )}
+            </Panel>
 
-          <Panel title={`Sources (${sources.length})`}>
-            {sources.length === 0 ? (
-              <Empty>No sources cited yet.</Empty>
-            ) : (
-              <ul className="space-y-1 text-sm">
-                {sources.map((s) => (
-                  <li key={s.url} className="truncate">
-                    <a href={s.url} target="_blank" rel="noreferrer" className="text-sky-400 hover:underline">
-                      {s.title || s.url}
-                    </a>{" "}
-                    <span className="text-slate-500">— {domain(s.url)} ↗</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
+            <details className="mt-4 rounded-card border border-cl-border bg-white">
+              <summary className={`flex cursor-pointer items-center gap-2 px-5 py-3 text-sm font-bold uppercase tracking-wider text-cl-blue ${focusRing}`}>
+                <Code2 className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
+                Raw event log ({raw.length})
+              </summary>
+              <pre className="max-h-96 overflow-auto border-t border-cl-border bg-cl-bg-soft p-4 font-mono text-[11px] leading-relaxed text-cl-slate">
+                {raw.map((ev, i) => `${i}\t${ev.type}\t${JSON.stringify(ev)}`).join("\n")}
+              </pre>
+            </details>
+          </div>
+        </main>
+      </div>
+
+      {mobileHistoryOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <button
+            type="button"
+            aria-label="Close history"
+            className="absolute inset-0 cursor-default bg-slate-900/40"
+            onClick={closeMobileHistory}
+          />
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="Run history"
+            className="relative h-full w-[min(20rem,calc(100vw-2rem))] overflow-y-auto bg-white shadow-xl"
+          >
+            <div className="flex items-center justify-between border-b border-cl-border p-4">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-cl-blue">History</h2>
+              <button
+                ref={closeHistoryButtonRef}
+                type="button"
+                aria-label="Close history"
+                onClick={closeMobileHistory}
+                className={`inline-flex h-9 w-9 items-center justify-center rounded-btn border border-cl-border text-cl-blue hover:bg-cl-ice ${focusRing}`}
+              >
+                <X className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
+              </button>
+            </div>
+            <div className="p-4">
+              <HistoryList history={history} runId={runId} live={live} onReplay={replayFromHistory} />
+            </div>
+          </aside>
         </div>
-
-        <Panel title="Reasoning" className="mt-4">
-          {reasoning ? (
-            <pre className="whitespace-pre-wrap break-words font-sans text-sm text-slate-200">
-              {reasoning}
-              {busy && <span className="animate-pulse">▌</span>}
-            </pre>
-          ) : (
-            <Empty>{busy ? "Reasoning will stream here…" : "No reasoning."}</Empty>
-          )}
-          <p className="mt-2 text-[11px] text-slate-500">
-            Note: this is the model&apos;s reasoning <em>summary</em>, not its raw chain-of-thought (OpenAI does not expose the latter).
-          </p>
-        </Panel>
-
-        <Panel title="Answer" className="mt-4">
-          {answer ? (
-            <pre className="whitespace-pre-wrap break-words font-sans text-sm text-slate-100">
-              {answer}
-              {busy && <span className="animate-pulse">▌</span>}
-            </pre>
-          ) : (
-            <Empty>{busy ? "The answer will stream here…" : "No answer."}</Empty>
-          )}
-        </Panel>
-
-        <details className="mt-4 rounded-lg border border-slate-800 bg-slate-900 p-3">
-          <summary className="cursor-pointer text-sm text-slate-300">Raw event log ({raw.length})</summary>
-          <pre className="mt-2 max-h-96 overflow-auto text-[11px] leading-relaxed text-slate-400">
-            {raw.map((ev, i) => `${i}\t${ev.type}\t${JSON.stringify(ev)}`).join("\n")}
-          </pre>
-        </details>
-      </main>
+      )}
     </div>
   );
 }
 
-function statusColor(status: ViewStatus): string {
-  switch (status) {
-    case "completed":
-      return "text-emerald-400";
-    case "failed":
-      return "text-red-400";
-    case "incomplete":
-      return "text-orange-400";
-    case "cancelled":
-      return "text-slate-300";
-    case "running":
-      return "text-amber-400";
-    default:
-      return "text-slate-400";
-  }
-}
+const inputFocus = "focus:border-cl-blue focus:outline-none focus:ring-2 focus:ring-cl-blue/20";
 
-function StatusDot({ status }: { status: RunStatus }) {
-  const color =
-    status === "completed"
-      ? "bg-emerald-500"
-      : status === "failed"
-      ? "bg-red-500"
-      : status === "incomplete"
-      ? "bg-orange-500"
-      : status === "cancelled"
-      ? "bg-slate-500"
-      : "bg-amber-500";
-  return <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${color}`} title={status} />;
-}
-
-function Panel({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
+function Field({
+  label,
+  htmlFor,
+  children,
+  className = "",
+}: {
+  label: string;
+  htmlFor: string;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <section className={`rounded-lg border border-slate-800 bg-slate-900 p-3 ${className}`}>
-      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{title}</h2>
+    <div className={`flex flex-col gap-1 ${className}`}>
+      <label htmlFor={htmlFor} className="text-xs font-bold uppercase tracking-wider text-cl-blue">
+        {label}
+      </label>
       {children}
+    </div>
+  );
+}
+
+function HistoryRail({
+  history,
+  runId,
+  live,
+  onRefresh,
+  onReplay,
+}: {
+  history: RunSummary[];
+  runId: string | null;
+  live: boolean;
+  onRefresh: () => void;
+  onReplay: (id: string) => void;
+}) {
+  return (
+    <nav aria-label="Run history" className="hidden w-64 shrink-0 border-r border-cl-border bg-white p-4 md:block">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-cl-blue">History</h2>
+        <button
+          type="button"
+          onClick={onRefresh}
+          aria-label="Refresh history"
+          className={`inline-flex h-8 w-8 items-center justify-center rounded-btn text-cl-slate hover:bg-cl-ice hover:text-cl-blue ${focusRing}`}
+        >
+          <RotateCw className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
+        </button>
+      </div>
+      <HistoryList history={history} runId={runId} live={live} onReplay={onReplay} />
+    </nav>
+  );
+}
+
+function HistoryList({
+  history,
+  runId,
+  live,
+  onReplay,
+}: {
+  history: RunSummary[];
+  runId: string | null;
+  live: boolean;
+  onReplay: (id: string) => void;
+}) {
+  if (history.length === 0) return <p className="text-sm italic text-slate-500">No runs yet.</p>;
+
+  return (
+    <ul className="space-y-2">
+      {history.map((h) => {
+        const selected = h.id === runId;
+        return (
+          <li key={h.id}>
+            <button
+              type="button"
+              onClick={() => onReplay(h.id)}
+              disabled={live}
+              aria-current={selected ? "true" : undefined}
+              className={`w-full rounded-card border border-cl-border bg-white p-3 text-left hover:bg-cl-ice disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${
+                selected ? "border-l-4 border-l-cl-blue bg-cl-ice pl-2" : ""
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-semibold text-cl-blue">{h.model}</span>
+                <StatusBadge status={h.status} />
+              </div>
+              <div className="mt-2 truncate text-sm text-cl-slate" title={h.query_preview || "(empty)"}>
+                {h.query_preview || "(empty)"}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">{new Date(h.created_at).toLocaleString()}</div>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function StatusBadge({ status }: { status: BadgeStatus }) {
+  const map: Record<BadgeStatus, { label: string; className: string }> = {
+    idle: { label: "Idle", className: "bg-slate-100 text-slate-600" },
+    running: { label: "Running", className: "bg-cl-yellow text-cl-navy" },
+    completed: { label: "Completed", className: "bg-cl-success text-slate-900" },
+    failed: { label: "Failed", className: "bg-cl-error text-slate-900" },
+    cancelled: { label: "Cancelled", className: "bg-slate-200 text-slate-700" },
+    incomplete: { label: "Incomplete", className: "bg-cl-warning text-slate-900" },
+    in_progress: { label: "In progress", className: "bg-cl-ice text-cl-blue" },
+    searching: { label: "Searching", className: "bg-cl-yellow text-cl-navy" },
+  };
+  const item = map[status];
+
+  return (
+    <span className={`inline-flex shrink-0 rounded-[3px] px-2 py-0.5 text-xs font-bold uppercase tracking-wider ${item.className}`}>
+      {item.label}
+    </span>
+  );
+}
+
+function KpiCard({ label, value, sublabel }: { label: string; value: number; sublabel: string }) {
+  return (
+    <div className="min-w-[180px] flex-1 rounded-card border border-cl-border bg-white p-5">
+      <div className="text-xs font-bold uppercase tracking-wider text-cl-blue">{label}</div>
+      <div className="mt-2 text-3xl font-bold tabular-nums text-cl-blue md:text-4xl xl:text-5xl">{value}</div>
+      <div className="mt-1 text-sm font-medium text-cl-slate">{sublabel}</div>
+    </div>
+  );
+}
+
+function Panel({
+  title,
+  children,
+  className = "",
+  meta,
+}: {
+  title: string;
+  children: ReactNode;
+  className?: string;
+  meta?: string;
+}) {
+  return (
+    <section className={`rounded-card border border-cl-border bg-white ${className}`}>
+      <div className="flex items-center justify-between gap-3 border-b border-cl-border px-5 py-3">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-cl-blue">{title}</h2>
+        {meta && <span className="rounded-[3px] bg-cl-ice px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-cl-blue">{meta}</span>}
+      </div>
+      <div className="p-5">{children}</div>
     </section>
   );
 }
 
-function Empty({ children }: { children: React.ReactNode }) {
+function Empty({ children }: { children: ReactNode }) {
   return <p className="text-sm italic text-slate-500">{children}</p>;
 }
 
-function StatusChip({ status }: { status: Fanout["status"] }) {
-  const map: Record<Fanout["status"], string> = {
-    in_progress: "bg-slate-700 text-slate-200",
-    searching: "bg-amber-600/30 text-amber-300",
-    completed: "bg-emerald-600/30 text-emerald-300",
-  };
-  const label = status === "completed" ? "done ✓" : status;
-  return <span className={`shrink-0 rounded px-2 py-0.5 text-[11px] ${map[status]}`}>{label}</span>;
+function FanoutTable({ fanouts }: { fanouts: Fanout[] }) {
+  return (
+    <div className="overflow-x-auto rounded-card border border-cl-border">
+      <table className="w-full table-fixed border-collapse text-sm">
+        <caption className="sr-only">Search fan-outs</caption>
+        <thead className="bg-cl-blue text-xs uppercase tracking-wider text-white">
+          <tr className="h-11">
+            <th scope="col" className="w-28 px-3 py-3 text-left font-bold">
+              Action
+            </th>
+            <th scope="col" className="px-3 py-3 text-left font-bold">
+              Query / URL
+            </th>
+            <th scope="col" className="w-36 px-3 py-3 text-left font-bold">
+              Status
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {fanouts.map((f) => {
+            const action = describeAction(f.action);
+            const Icon = action.icon;
+            const detail = action.detail ?? "";
+            return (
+              <tr key={f.id} className="h-9 even:bg-cl-ice/50">
+                <td className="whitespace-nowrap px-3 py-2 font-medium text-cl-slate">
+                  <span className="inline-flex items-center gap-2">
+                    <Icon className="h-4 w-4 text-cl-blue" aria-hidden="true" strokeWidth={1.75} />
+                    {action.label}
+                  </span>
+                </td>
+                <td className="px-3 py-2 align-top">
+                  {action.href ? (
+                    <a
+                      href={action.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={detail}
+                      className={`block whitespace-normal break-words font-medium leading-relaxed text-cl-blue hover:underline ${focusRing}`}
+                    >
+                      {detail}
+                      <span className="sr-only">(opens in new tab)</span>
+                    </a>
+                  ) : (
+                    <span className="block whitespace-normal break-words leading-relaxed text-cl-slate" title={detail}>
+                      {detail || "-"}
+                    </span>
+                  )}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2">
+                  <StatusBadge status={f.status} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function StreamingCaret() {
+  return <span aria-hidden="true" className="inline-block h-[1em] w-[2px] animate-pulse bg-cl-blue align-[-0.15em]" />;
+}
+
+function AlertBlock({ title, message }: { title: string; message: string }) {
+  return (
+    <div role="alert" className="mb-4 flex gap-3 rounded-card border border-l-4 border-cl-border border-l-cl-error bg-cl-ice/40 px-4 py-3">
+      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-cl-error" aria-hidden="true" strokeWidth={1.75} />
+      <div>
+        <div className="font-bold text-slate-900">{title}</div>
+        <div className="text-sm leading-relaxed text-cl-slate">{message}</div>
+      </div>
+    </div>
+  );
 }

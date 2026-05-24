@@ -8,6 +8,7 @@
 export type WebSearchAction = {
   type?: string; // "search" | "open_page" | "find_in_page" | future variants
   query?: string;
+  queries?: string[];
   url?: string;
   pattern?: string;
   sources?: { url: string; title?: string }[];

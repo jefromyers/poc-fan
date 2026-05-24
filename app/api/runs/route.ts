@@ -154,13 +154,18 @@ export async function POST(req: Request) {
         const result: any = await Promise.race([iterator.next(), aborted]);
         if (result.done) break;
         const ev = result.value;
+        const type = typeof ev?.type === "string" ? ev.type.trim() : "";
+        if (!type) {
+          console.warn("runs: untyped event", JSON.stringify(ev));
+          continue;
+        }
         const s = typeof ev.sequence_number === "number" ? ev.sequence_number : seq++;
 
         // Persist BEFORE forwarding so the DB is the source of truth: the
         // browser never sees an event that isn't already in the audit log. If
         // the insert fails, fail the run rather than forward an unstored event.
         try {
-          await persist(s, ev.type, ev);
+          await persist(s, type, ev);
         } catch (e: any) {
           const message = `persistence failed: ${e?.message ?? String(e)}`;
           await finalize("failed", null, message);
@@ -169,9 +174,9 @@ export async function POST(req: Request) {
         }
         send(ev);
 
-        if (ev.type === "response.completed") await finalize("completed", ev.response, null);
-        else if (ev.type === "response.incomplete") await finalize("incomplete", ev.response, null);
-        else if (ev.type === "response.failed")
+        if (type === "response.completed") await finalize("completed", ev.response, null);
+        else if (type === "response.incomplete") await finalize("incomplete", ev.response, null);
+        else if (type === "response.failed")
           await finalize("failed", ev.response, ev.response?.error?.message ?? "response failed");
       }
 
