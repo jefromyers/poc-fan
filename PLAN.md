@@ -1,259 +1,67 @@
-# PLAN — Model Thinking Inspector (POC)
+# Plan: Render streamed markdown in Reasoning + Answer cards
 
-A webpage where you pick an OpenAI model, type a query, and watch the model's
-"thinking" unfold: the **search fan-outs** (sub-queries it issues), the
-**sources** it pulls from, and its **reasoning** streamed live — with the final
-reasoning and answer shown when done. Every raw stream event plus the final
-assembled response is persisted for later inspection.
+## 1. Streaming + partial markdown
 
----
+- Token-by-token deltas mean the buffer is frequently mid-token: an unclosed `**`, a half-written ``` fence, a list item with no newline yet, a link `[text](http` with no closing paren.
+- Re-parsing the whole buffer on every delta is fine — markdown parsers are fast on the answer sizes we produce (kilobytes), and React's reconciliation handles incremental DOM updates.
+- The real issue is *visual flicker*: an unbalanced `**` flips the rest of the document to bold until the closing marker arrives. Two practical mitigations:
+  - **Token healing / completion pass** before parsing: detect unclosed inline markers (`*`, `_`, `` ` ``, `**`, `__`), unclosed fenced blocks (odd count of ``` ```), unclosed link `[...](` and append the missing close. Streamdown does this; we can also do ~30 lines of pre-processing ourselves.
+  - **Streaming-safe parser config**: disable HTML passthrough; trust nothing. Render the still-streaming *last block* as plain pre-wrapped text if heuristics detect it's a code fence in progress (optional polish).
+- Replace the streaming caret outside the rendered markdown tree (already a sibling of `<pre>`), so it never lands inside a `<p>` or `<li>` and disrupts parsing.
 
-## 1. Stack choice
+## 2. Library choice
 
-**Next.js (App Router, TypeScript) + Postgres, all in Docker Compose.**
+Recommend **`react-markdown` + `remark-gfm`** for these cards.
 
-One framework gives us the static page *and* a server-side streaming proxy in
-the same deploy — important because the OpenAI key must never reach the browser
-and we need a server in the middle to (a) hold the SSE connection to OpenAI and
-(b) tee every event to both the browser and the database. A Next.js Route
-Handler (Node runtime) does exactly this with `ReadableStream`. Postgres with
-`JSONB` is the natural fit for "store the raw event blobs verbatim but still
-query them later." **Redis is not needed for this POC** (single server holds the
-stream; no fan-out to multiple consumers) — I note below where it would earn its
-place if we scaled.
+- `react-markdown` (~40kB gz with gfm): renders to React elements (not `dangerouslySetInnerHTML`), so XSS surface is minimal and we get full control via the `components` prop for styling. Mature, maintained, well-understood. Handles re-render on every delta acceptably.
+- `remark-gfm` for tables, task lists, strikethrough, autolinks — the model emits these.
+- Add a small local `healMarkdown(text)` helper for the unclosed-marker problem above; don't pull in a heavier streaming wrapper yet.
+- Skip code-syntax highlighting in v1 (rehype-highlight / shiki adds 100–500kB). Plain monospace block first; revisit if real answers contain code.
+- Why not alternatives:
+  - **`marked` / `markdown-it`**: produce HTML strings → forces `dangerouslySetInnerHTML` and a sanitizer (DOMPurify, +20kB) and we lose the ergonomic `components` override.
+  - **`streamdown`**: purpose-built for AI streaming and would solve (1) elegantly, but it's young, less battle-tested, and pulls more deps. Worth revisiting if our hand-rolled healing gets ugly.
+- One-time cost: ~50kB gzipped added to the client bundle. Acceptable for this app.
 
----
+## 3. Styling — fitting the Citation Labs system
 
-## 2. High-level architecture
+Pass a `components` map to `react-markdown` so each element uses existing Tailwind tokens (`text-cl-blue`, `text-cl-slate`, `bg-cl-ice`, `border-cl-border`, `rounded-btn`, `rounded-card`):
 
-```
- Browser                    Next.js server (Node runtime)              OpenAI
- ┌──────────────┐  POST     ┌─────────────────────────────┐  Responses API
- │ React page   │ ────────► │ /api/runs                   │  (stream=true)
- │ - dropdown   │  {model,  │  1. INSERT run (status=run) │ ───────────────►
- │ - query box  │   query}  │  2. open OpenAI stream      │ ◄───────────────
- │ - live panels│ ◄──────── │  3. for each event:         │   SSE events
- │              │  SSE      │       a. persist event row  │
- └──────────────┘ (re-emit) │       b. re-emit to browser │
-                            │  4. on done: UPDATE run     │
-                            │     (status, final_response)│
-                            └──────────────┬──────────────┘
-                                           │
-                                    ┌──────▼──────┐
-                                    │  Postgres   │
-                                    │ runs/events │
-                                    └─────────────┘
-```
+- `h1/h2/h3` → uppercase, `tracking-wider`, `text-cl-blue`, decreasing sizes; mirror the panel-title treatment.
+- `p` → `text-base leading-relaxed text-cl-slate max-w-[72ch]` (matches the current `<pre>`).
+- `ul/ol` → `list-disc/list-decimal pl-6 space-y-1`; `li` inherits paragraph color.
+- `a` → `text-cl-blue hover:underline` + `focusRing`; force `target="_blank" rel="noreferrer"` and append the existing `ExternalLink` glyph treatment used in the Sources list.
+- `code` (inline) → `rounded-[3px] bg-cl-ice px-1 py-0.5 font-mono text-[0.9em] text-cl-navy`.
+- `pre > code` (block) → `rounded-btn border border-cl-border bg-cl-bg-soft p-4 font-mono text-[12px] leading-relaxed overflow-x-auto` (matches the existing raw-event-log block at page.tsx:587).
+- `blockquote` → `border-l-4 border-cl-blue bg-cl-ice/60 px-4 py-2 text-cl-slate` (reuses the existing "note" treatment at page.tsx:526).
+- `table` → reuse the look of `FanoutTable` (page.tsx:785): blue header row, even-row tint `bg-cl-ice/50`, `border-cl-border`.
+- `hr` → `border-cl-border`.
+- Strip default browser margins; rely on `space-y-3` on the wrapper for vertical rhythm so cards stay tight.
 
-**Flow:** The browser `POST`s `{model, query, effort}` to `/api/runs` and reads
-the response body as a stream (fetch + `ReadableStream`, not `EventSource`, so we
-can POST a body). For each event the server **persists the `events` row first,
-then** re-emits it as SSE (`data: {...}\n\n`) — the DB is the source of truth, so
-the browser never sees an event that isn't already stored. Terminal events
-(`response.completed` / `incomplete` / `failed`) write the final status + assembled
-`final_response` to the `runs` row. The client renders incrementally as events arrive.
+Wrap the whole thing in a single `<Markdown>` component (new file `app/markdown.tsx`) so Reasoning and Answer share it.
 
-**Decoupled pump + cancellation.** The OpenAI consumption runs as a detached
-background task, *not* tied to the response stream's lifecycle, because Next.js
-tears down the awaited request scope on client disconnect (which otherwise
-orphaned runs at `running`). On disconnect/Stop, `req.signal` (and the stream's
-`cancel()`) abort the OpenAI request — stopping token billing — and finalize the
-run as **`cancelled`** (not `failed`); events received before the abort stay
-persisted. Because this SDK's async iterator can hang rather than reject on abort,
-we (a) finalize directly in the disconnect handler and (b) race each iterator step
-against the abort so the pump terminates cleanly instead of leaking.
+## 4. Where the change lands
 
-**Read path (inspection).** `GET /api/runs` lists recent runs and `GET
-/api/runs/:id` returns the run row plus all `events` ordered by `seq`. The UI's
-history rail lists past runs; selecting one **replays** it through the very same
-event handler used for the live stream, fed from stored events instead of SSE.
+- **New**: `app/markdown.tsx` — exports `<Markdown text="..." streaming={busy} />`. Owns the `components` map and the `healMarkdown` helper.
+- **Edit**: `app/page.tsx`
+  - Reasoning panel: replace the `<pre>...</pre>` block at **page.tsx:519–522** with `<Markdown text={reasoning} streaming={busy} />`. Keep the `StreamingCaret` as a sibling so it sits after the rendered markdown, not inside it.
+  - Answer panel: replace the `<pre>...</pre>` block at **page.tsx:534–537** the same way.
+  - The empty-state branches (page.tsx:524, 539) and the note block (page.tsx:526–529) stay as-is.
+  - Reasoning currently joins parts with `"\n\n"` at **page.tsx:118** — keep this; it produces a valid markdown paragraph break between summary parts.
+- **Edit**: `package.json` — add `react-markdown` and `remark-gfm`.
+- No server / SSE / DB changes. The stored payloads are already plain text.
 
----
+## 5. Risks
 
-## 3. Data model (Postgres)
+- **XSS**: `react-markdown` defaults are safe (no raw HTML). Do *not* add `rehype-raw`. Links: force `rel="noreferrer"` and `target="_blank"` in the `a` component override; the default `urlTransform` already blocks `javascript:` URLs — keep it.
+- **Layout shift during streaming**: when an unclosed `**` or fence is finally closed, blocks re-flow. Token healing (§1) absorbs most of it. Set a stable container `min-h` and keep the caret outside the markdown tree to avoid jitter.
+- **Perf with long answers**: re-parsing on every token is O(n) per render. For typical answers (<20kB) this is fine. Mitigations if it bites: `useMemo` the parsed output keyed on text length bucket, or throttle re-renders with `requestAnimationFrame` coalescing in `handleEvent`. Not needed v1.
+- **Auto-scroll**: not currently implemented; markdown re-flow could move content. Out of scope, but flag it.
+- **Replay path**: `replay()` calls `handleEvent` synchronously in a loop (page.tsx:365). Each event triggers a setState → fine, but the markdown renders once at the end after React batches. No change needed.
+- **Bundle size**: +~50kB gz. Acceptable; revisit if we add syntax highlighting.
 
-Raw events are the source of truth; the parsed `final_response` is a
-convenience snapshot. We deliberately avoid over-normalizing for a POC — the UI
-can derive fan-outs / sources / reasoning from the raw event log or the final
-object.
+## Out of scope (note for follow-ups)
 
-**`runs`**
-
-| column           | type        | notes                                            |
-|------------------|-------------|--------------------------------------------------|
-| `id`             | uuid PK     | generated server-side                            |
-| `created_at`     | timestamptz | default now()                                    |
-| `model`          | text        | e.g. `gpt-5.5`                                    |
-| `query`          | text        | user's prompt                                     |
-| `effort`         | text        | reasoning effort: `low` \| `medium` \| `high`     |
-| `status`         | text        | `running`\|`completed`\|`incomplete`\|`failed`\|`cancelled` |
-| `final_response` | jsonb       | the assembled `response` object (raw, verbatim)  |
-| `usage`          | jsonb       | token usage from the final response              |
-| `error`          | text        | populated on failure                             |
-
-**`events`** — every streamed event, verbatim.
-
-| column       | type        | notes                                          |
-|--------------|-------------|------------------------------------------------|
-| `id`         | bigserial PK|                                                |
-| `run_id`     | uuid FK     | → runs.id, indexed                             |
-| `seq`        | int         | server-assigned order (OpenAI `sequence_number`)|
-| `type`       | text        | event type, e.g. `response.output_text.delta`  |
-| `payload`    | jsonb       | the full raw event                             |
-| `created_at` | timestamptz | default now()                                  |
-
-Index: `(run_id, seq)`. Replaying a run = `SELECT payload FROM events WHERE
-run_id=$1 ORDER BY seq`.
-
-**Stored raw vs. parsed:**
-- *Raw:* every `events.payload` and `runs.final_response` — untouched JSON.
-- *Parsed (derived at read time, not stored):* fan-out query list, source/citation
-  list, reasoning summary text. If we later want them queryable, add optional
-  tables (`web_searches`, `citations`, `reasoning_summaries`) populated from the
-  raw log — not required for the POC.
-
----
-
-## 4. UI sketch
-
-Single page. Top: controls. Below: a four-region "thinking" dashboard that fills
-in live, plus a collapsible raw log.
-
-```
-┌────────────────────────────────────────────────────────────────────┐
-│  [Model ▾ gpt-5.5][Effort ▾ medium][ query…              ] [Run]     │
-├──────────────────────────┬───────────────────────────────────────────┤
-│  SEARCH FAN-OUTS         │  SOURCES                                  │
-│  ┌────────────────────┐  │  • cuomo housing plan — nytimes.com  ↗    │
-│  │ "nyc rent 2026"  ⟳ │  │  • 2026 rent guidelines — nyc.gov    ↗    │
-│  │ "rent board vote" ✓│  │  • …                                      │
-│  │ "RGB increase %"  ✓│  │  (deduped cited URLs, title + domain)     │
-│  └────────────────────┘  │                                           │
-├──────────────────────────┴───────────────────────────────────────────┤
-│  REASONING  (streams live ▌ then shows final)                        │
-│  Breaking the question into rent-board actions and recent votes…     │
-├──────────────────────────────────────────────────────────────────────┤
-│  ANSWER  (streams live)                                              │
-│  The 2026 guidelines raised stabilized rents by …                    │
-├──────────────────────────────────────────────────────────────────────┤
-│  ▸ Raw event log (collapsed) — JSON, in arrival order                │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-- **Command bar:** model dropdown, **reasoning-effort selector** (`low` /
-  `medium` / `high`, passed through as `reasoning.effort`), query box, Run button.
-- **Search fan-outs:** one card per `web_search_call`, showing the action it took
-  and a status chip that advances `in_progress → searching ✓`. The action varies —
-  we render all three variants found in `web_search_call.action`:
-  - `search` → 🔍 the sub-query string (the classic fan-out)
-  - `open_page` → 📄 a specific URL the model opened
-  - `find_in_page` → 🔎 a pattern searched *within* an opened page
-  The model often issues several of these; each is its own card.
-- **Sources:** deduped list of cited URLs from text annotations (title + domain
-  + outbound link). Grows as citations are emitted.
-- **Reasoning:** streams token-by-token with a live cursor; once the matching
-  `.done` fires, the cursor stops and the completed text stays. We append deltas
-  from **both** `reasoning_summary_text.delta` and `reasoning_text.delta`, since
-  some models/configs emit reasoning text directly rather than a summary. (See
-  risk note: OpenAI exposes a *summary*, not raw chain-of-thought.)
-- **Answer:** final assembled answer text, also streamed.
-- **Raw log:** collapsible, for the "inspect everything" audience.
-
----
-
-## 5. OpenAI Responses API events → UI mapping
-
-Request: `responses.create({ model, input, stream: true, tools:
-[{type:"web_search"}], reasoning: { effort, summary: "detailed" }, include:
-["web_search_call.action.sources"] })`. `effort` comes from the UI selector;
-`reasoning.summary` is required to get reasoning text; `include` surfaces the
-search result sources.
-
-| Event type                                  | What we do                                              |
-|---------------------------------------------|---------------------------------------------------------|
-| `response.created` / `.in_progress`         | mark run started; show spinner                          |
-| `response.output_item.added`                | new item began; if `web_search_call`, create a fan-out card with its `action` |
-| `response.web_search_call.in_progress`      | card → "in progress" (keyed by `item_id`)               |
-| `response.web_search_call.searching`        | card → "searching"                                      |
-| `response.web_search_call.completed`        | card → done ✓                                            |
-| `response.output_item.done`                 | if `web_search_call`, finalize card `action` + harvest `action.sources` |
-| `response.reasoning_summary_part.added`     | start a new reasoning block (separator)                 |
-| `response.reasoning_summary_text.delta`     | append to live reasoning panel (token stream)           |
-| `response.reasoning_text.delta` / `.done`   | append/freeze reasoning text (direct-text models)       |
-| `response.reasoning_summary_text.done`      | freeze final reasoning text                             |
-| `response.output_text.delta`                | append to live Answer panel                             |
-| `response.output_text.annotation.added`     | add/dedupe a cited URL in Sources                       |
-| `response.output_text.done`                 | finalize answer text                                    |
-| `response.completed`                        | assemble + persist `final_response`; status=completed   |
-| `response.failed` / `error`                 | status=failed; surface error in UI                      |
-
-The `action` (search query, opened URL, in-page pattern) rides on the *item*
-(`output_item.added` / `.done`), not on the `web_search_call.*` progress events —
-those only carry `item_id`, which we use to advance the right card's status.
-
-**Forward-compatibility:** *every* event is written to `events` verbatim,
-including types with no UI role (`content_part.*`) and **types we don't recognize
-at all** — OpenAI adds event types over time, and the raw store must never drop
-one. The UI ignores unrecognized types gracefully (they still appear in the raw
-log). All events carry a `sequence_number` we store as `seq`.
-
-**Models offered in the dropdown** (reasoning + web-search capable), default
-**`gpt-5.5`**: `gpt-5.5`, `gpt-5.4`, `gpt-5`, `gpt-5-mini`, `o4-mini`. Exact model
-IDs should be verified against the live OpenAI model list at build time; the list
-is a single constant, trivial to adjust.
-
----
-
-## 6. Docker setup
-
-`docker-compose.yml` — two services:
-
-| service | image / build        | ports        | notes                                  |
-|---------|----------------------|--------------|----------------------------------------|
-| `web`   | build `./` (Next.js) | `3000:3000`  | depends_on `db`; runs migrate then start|
-| `db`    | `postgres:16`        | `5432:5432`  | named volume `pgdata`                  |
-
-**Env vars** (`.env`, git-ignored; `.env.example` committed):
-
-```
-OPENAI_API_KEY=sk-...           # server only, never exposed to client
-DATABASE_URL=postgres://app:app@db:5432/app
-OPENAI_DEFAULT_MODEL=gpt-5
-```
-
-Schema applied via a migration step on `web` startup (e.g. a small SQL file or
-Drizzle/Prisma migrate). `redis:7` is left commented in the compose file as the
-documented extension point (§7).
-
----
-
-## 7. Open questions / risks
-
-- **"Reasoning" is a summary, not the real chain-of-thought.** OpenAI does not
-  expose raw CoT for these models — `reasoning.summary` gives a model-generated
-  summary. The UI/label must be honest about this so the audience isn't misled.
-  This is the single most important caveat for a tool whose whole pitch is
-  "see how it reasoned."
-- **Fan-out queries depend on the model deciding to search.** A query the model
-  answers from parametric knowledge yields zero `web_search_call` items. We
-  should show an empty-state ("model chose not to search") rather than a blank panel.
-- **Streaming via POST:** `EventSource` can't POST, so the client uses
-  `fetch` + `ReadableStream`. No live auto-reconnect, but a finished run can be
-  re-opened from the history rail (replayed from `events`). A run interrupted by
-  disconnect is finalized `cancelled` with the events received so far — it does
-  *not* resume to completion (true resume would need a queue/worker; see Redis).
-- **Long runs / timeouts:** deep-reasoning + multi-search runs can take a while;
-  ensure the Node route handler and any proxy don't cut the stream short. Disable
-  response buffering on the SSE route.
-- **SDK lags the live API:** this `openai` version types the web-search tool as
-  `web_search_preview` and omits the `web_search_call.action.sources` include
-  literal, yet the live API accepts `web_search` and the include (both verified at
-  runtime). Two localized type escapes cover the gap; re-verify against the SDK at
-  build time. The verbatim `events` store means we never drop events we don't render.
-- **Where Redis would earn its place:** if we wanted multiple browser tabs to
-  watch the same run, or to decouple the OpenAI stream from client connections,
-  publish events to a Redis channel and have the SSE route subscribe. Out of
-  scope for the POC.
-- **Cost/abuse:** no auth in the POC; reasoning models with web search are not
-  cheap. Fine for local/single-user; add a rate limit before any shared deploy.
-```
+- Code syntax highlighting (shiki / rehype-highlight).
+- Click-to-copy on code blocks.
+- Inline citation rendering (`[1]` → linked source) — the answer already includes annotation events; could be tied to the Sources list later.
+- Auto-scroll-to-bottom as content streams.

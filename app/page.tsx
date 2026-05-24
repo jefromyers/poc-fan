@@ -16,6 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { OutputItem, RunStatus, StreamEvent, WebSearchAction } from "@/lib/events";
+import { Markdown } from "./markdown";
 
 const MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5", "gpt-5-mini", "o4-mini"];
 const EFFORTS = ["low", "medium", "high"] as const;
@@ -42,6 +43,7 @@ type ActionDescription = {
   icon: LucideIcon;
   label: string;
   detail?: string;
+  details?: string[];
   href?: string;
 };
 
@@ -50,8 +52,15 @@ const focusRing =
 
 function describeAction(action?: WebSearchAction): ActionDescription {
   switch (action?.type) {
-    case "search":
-      return { icon: Search, label: "Search", detail: searchDetail(action) };
+    case "search": {
+      const queries = searchQueries(action);
+      return {
+        icon: Search,
+        label: "Search",
+        detail: queries[0],
+        details: queries.length > 1 ? queries : undefined,
+      };
+    }
     case "open_page":
       return { icon: FileText, label: "Open", detail: action.url, href: action.url };
     case "find_in_page":
@@ -70,11 +79,26 @@ function describeAction(action?: WebSearchAction): ActionDescription {
   }
 }
 
-function searchDetail(action: WebSearchAction): string | undefined {
-  if (Array.isArray(action.queries) && action.queries.length > 0) {
-    return action.queries.filter(Boolean).join(" | ");
+function normalizeUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    for (const key of [...u.searchParams.keys()]) {
+      if (key.toLowerCase().startsWith("utm_")) u.searchParams.delete(key);
+    }
+    u.hostname = u.hostname.toLowerCase();
+    if (u.pathname.length > 1 && u.pathname.endsWith("/")) u.pathname = u.pathname.slice(0, -1);
+    return u.toString();
+  } catch {
+    return raw;
   }
-  return action.query;
+}
+
+function searchQueries(action: WebSearchAction): string[] {
+  if (Array.isArray(action.queries)) {
+    const filtered = action.queries.filter((q): q is string => Boolean(q));
+    if (filtered.length > 0) return filtered;
+  }
+  return action.query ? [action.query] : [];
 }
 
 function titleCase(value: string): string {
@@ -105,6 +129,8 @@ export default function Home() {
 
   const [fanouts, setFanouts] = useState<Fanout[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
+  const [citedUrls, setCitedUrls] = useState<Set<string>>(() => new Set());
+  const [citationCount, setCitationCount] = useState(0);
   const [reasoningParts, setReasoningParts] = useState<string[]>([]);
   const [answer, setAnswer] = useState("");
   const [raw, setRaw] = useState<StreamEvent[]>([]);
@@ -117,6 +143,8 @@ export default function Home() {
 
   const reasoning = reasoningParts.join("\n\n");
   const busy = status === "running";
+  const searchCount = fanouts.filter((f) => f.action?.type === "search").length;
+  const citedCount = citedUrls.size;
 
   useEffect(() => {
     if (!mobileHistoryOpen) return;
@@ -139,20 +167,30 @@ export default function Home() {
     setError(null);
     setFanouts([]);
     setSources([]);
+    setCitedUrls(new Set());
+    setCitationCount(0);
     setReasoningParts([]);
     setAnswer("");
     setRaw([]);
   }
 
-  function addSources(incoming: Source[]) {
+  function addSources(incoming: Source[], { preferIncomingUrl = false } = {}) {
     if (incoming.length === 0) return;
     setSources((prev) => {
-      const seen = new Set(prev.map((s) => s.url));
-      const merged = [...prev];
+      const byKey = new Map<string, number>();
+      const merged = prev.map((s, i) => {
+        byKey.set(normalizeUrl(s.url), i);
+        return s;
+      });
       for (const s of incoming) {
-        if (s.url && !seen.has(s.url)) {
-          seen.add(s.url);
+        if (!s.url) continue;
+        const key = normalizeUrl(s.url);
+        const existing = byKey.get(key);
+        if (existing === undefined) {
+          byKey.set(key, merged.length);
           merged.push(s);
+        } else if (preferIncomingUrl) {
+          merged[existing] = { ...merged[existing], url: s.url, title: s.title || merged[existing].title };
         }
       }
       return merged;
@@ -247,7 +285,18 @@ export default function Home() {
         break;
       case "response.output_text.annotation.added":
         if (ev.annotation.type === "url_citation") {
-          addSources([{ url: ev.annotation.url, title: ev.annotation.title ?? ev.annotation.url }]);
+          addSources(
+            [{ url: ev.annotation.url, title: ev.annotation.title ?? ev.annotation.url }],
+            { preferIncomingUrl: true },
+          );
+          const key = normalizeUrl(ev.annotation.url);
+          setCitedUrls((prev) => {
+            if (prev.has(key)) return prev;
+            const next = new Set(prev);
+            next.add(key);
+            return next;
+          });
+          setCitationCount((n) => n + 1);
         }
         break;
 
@@ -510,16 +559,29 @@ export default function Home() {
             {error && <AlertBlock title="Run failed" message={error} />}
 
             <section className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <KpiCard label="Fan-outs" value={fanouts.length} sublabel="searches" />
-              <KpiCard label="Sources" value={sources.length} sublabel="cited" />
+              <KpiCard
+                label="Actions"
+                value={fanouts.length}
+                sublabel={`${searchCount} ${searchCount === 1 ? "search" : "searches"}`}
+              />
+              <KpiCard
+                label="Sources"
+                value={sources.length}
+                sublabel={
+                  citedCount > 0
+                    ? `retrieved · ${citedCount} sources cited (${citationCount} ${citationCount === 1 ? "reference" : "references"})`
+                    : "retrieved"
+                }
+              />
             </section>
 
             <Panel title="Reasoning" className="mt-4" meta={busy ? "Streaming..." : undefined}>
               {reasoning ? (
-                <pre className="max-w-[72ch] whitespace-pre-wrap break-words font-sans text-base leading-relaxed text-cl-slate">
-                  {reasoning}
-                  {busy && <StreamingCaret />}
-                </pre>
+                <Markdown
+                  text={reasoning}
+                  streaming={busy}
+                  trailing={busy ? <StreamingCaret /> : null}
+                />
               ) : (
                 <Empty>{busy ? "Reasoning will stream here..." : "No reasoning."}</Empty>
               )}
@@ -531,30 +593,34 @@ export default function Home() {
 
             <Panel title="Answer" className="mt-4" meta={busy ? "Streaming..." : undefined}>
               {answer ? (
-                <pre className="max-w-[72ch] whitespace-pre-wrap break-words font-sans text-base leading-relaxed text-cl-slate">
-                  {answer}
-                  {busy && <StreamingCaret />}
-                </pre>
+                <Markdown
+                  text={answer}
+                  streaming={busy}
+                  trailing={busy ? <StreamingCaret /> : null}
+                />
               ) : (
                 <Empty>{busy ? "The answer will stream here..." : "No answer."}</Empty>
               )}
             </Panel>
 
-            <Panel title={`Search fan-outs (${fanouts.length})`} className="mt-4">
+            <Panel title={`Actions (${fanouts.length})`} className="mt-4">
               {fanouts.length === 0 ? (
                 <Empty>
                   {busy
-                    ? "Waiting for the model to search..."
-                    : "No searches - the model may answer from its own knowledge."}
+                    ? "Waiting for the model to act..."
+                    : "No actions - the model may answer from its own knowledge."}
                 </Empty>
               ) : (
                 <FanoutTable fanouts={fanouts} />
               )}
             </Panel>
 
-            <Panel title={`Sources (${sources.length})`} className="mt-4">
+            <Panel
+              title={`Sources (${sources.length} retrieved${citedCount > 0 ? ` · ${citedCount} cited` : ""})`}
+              className="mt-4"
+            >
               {sources.length === 0 ? (
-                <Empty>No sources cited yet.</Empty>
+                <Empty>No sources retrieved yet.</Empty>
               ) : (
                 <ul className="space-y-3 text-sm">
                   {sources.map((s) => (
@@ -786,7 +852,7 @@ function FanoutTable({ fanouts }: { fanouts: Fanout[] }) {
   return (
     <div className="overflow-x-auto rounded-card border border-cl-border">
       <table className="w-full table-fixed border-collapse text-sm">
-        <caption className="sr-only">Search fan-outs</caption>
+        <caption className="sr-only">Actions</caption>
         <thead className="bg-cl-blue text-xs uppercase tracking-wider text-white">
           <tr className="h-11">
             <th scope="col" className="w-28 px-3 py-3 text-left font-bold">
@@ -814,7 +880,15 @@ function FanoutTable({ fanouts }: { fanouts: Fanout[] }) {
                   </span>
                 </td>
                 <td className="px-3 py-2 align-top">
-                  {action.href ? (
+                  {action.details && action.details.length > 0 ? (
+                    <ul className="list-disc space-y-1 pl-5 leading-relaxed text-cl-slate marker:text-cl-blue">
+                      {action.details.map((q, i) => (
+                        <li key={i} className="whitespace-normal break-words">
+                          {q}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : action.href ? (
                     <a
                       href={action.href}
                       target="_blank"
