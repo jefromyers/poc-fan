@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Code2,
   Dot,
+  Download,
   ExternalLink,
   FileText,
   Globe,
@@ -15,12 +16,16 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import type {
-  OutputItem,
-  RunStatus,
-  StreamEvent,
-  WebSearchAction,
-} from "@/lib/events";
+import type { OutputItem, RunStatus, StreamEvent } from "@/lib/events";
+import {
+  deriveRunState,
+  describeAction,
+  domain,
+  normalizeUrl,
+  type ActionKind,
+  type Fanout,
+  type Source,
+} from "@/lib/derive";
 import { DOCUMENTED_MODEL_FALLBACK } from "@/lib/model-options";
 import { Markdown } from "./markdown";
 
@@ -29,12 +34,6 @@ const EFFORTS = ["none", "low", "medium", "high", "xhigh"] as const;
 type ViewStatus = "idle" | RunStatus;
 type BadgeStatus = ViewStatus | Fanout["status"];
 
-type Fanout = {
-  id: string;
-  action?: WebSearchAction;
-  status: "in_progress" | "searching" | "completed";
-};
-type Source = { url: string; title: string };
 type RunSummary = {
   id: string;
   model: string;
@@ -44,91 +43,19 @@ type RunSummary = {
   query_preview: string;
 };
 
-type ActionDescription = {
-  icon: LucideIcon;
-  label: string;
-  detail?: string;
-  details?: string[];
-  href?: string;
-};
-
 const focusRing =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cl-blue focus-visible:ring-offset-2";
 
-function describeAction(action?: WebSearchAction): ActionDescription {
-  switch (action?.type) {
-    case "search": {
-      const queries = searchQueries(action);
-      return {
-        icon: Search,
-        label: "Search",
-        detail: queries[0],
-        details: queries.length > 1 ? queries : undefined,
-      };
-    }
-    case "open_page":
-      return {
-        icon: FileText,
-        label: "Open",
-        detail: action.url,
-        href: action.url,
-      };
-    case "find_in_page":
-      return {
-        icon: ScanSearch,
-        label: "Find",
-        detail:
-          action.pattern && action.url
-            ? `"${action.pattern}" in ${action.url}`
-            : (action.pattern ?? action.url),
-        href: action.url,
-      };
-    default:
-      return {
-        icon: Dot,
-        label: titleCase(action?.type ?? "action"),
-        detail: action ? JSON.stringify(action) : undefined,
-      };
-  }
-}
-
-function normalizeUrl(raw: string): string {
-  try {
-    const u = new URL(raw);
-    for (const key of [...u.searchParams.keys()]) {
-      if (key.toLowerCase().startsWith("utm_")) u.searchParams.delete(key);
-    }
-    u.hostname = u.hostname.toLowerCase();
-    if (u.pathname.length > 1 && u.pathname.endsWith("/"))
-      u.pathname = u.pathname.slice(0, -1);
-    return u.toString();
-  } catch {
-    return raw;
-  }
-}
-
-function searchQueries(action: WebSearchAction): string[] {
-  if (Array.isArray(action.queries)) {
-    const filtered = action.queries.filter((q): q is string => Boolean(q));
-    if (filtered.length > 0) return filtered;
-  }
-  return action.query ? [action.query] : [];
-}
-
-function titleCase(value: string): string {
-  return value
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function domain(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
+// Icon mapping for action kinds — the only UI-specific bit split out of the
+// shared (icon-free) describeAction in lib/derive.ts.
+const ACTION_ICONS: Record<ActionKind, LucideIcon> = {
+  search: Search,
+  open_page: FileText,
+  find_in_page: ScanSearch,
+  other: Dot,
+};
+function iconFor(kind: ActionKind): LucideIcon {
+  return ACTION_ICONS[kind];
 }
 
 export default function Home() {
@@ -485,9 +412,21 @@ export default function Home() {
         return;
       }
       const { run, events } = await r.json();
-      for (const e of events as { payload: StreamEvent }[]) {
-        handleEvent(e.payload);
-      }
+      // Derive the whole view in one shot via the shared reducer (the canonical
+      // rule set, also used by the server markdown export) instead of replaying
+      // events one-by-one through the live state setters.
+      const payloads = (events as { payload: StreamEvent }[]).map(
+        (e) => e.payload,
+      );
+      const d = deriveRunState(payloads);
+      setRaw(payloads.slice(0, 5000));
+      setReasoningParts(d.reasoningParts);
+      setAnswer(d.answer);
+      setFanouts(d.fanouts);
+      setSources(d.sources);
+      setConsultedUrls(d.consultedUrls);
+      setCitedUrls(d.citedUrls);
+      setCitationCount(d.citationCount);
       setStatus(run.status as RunStatus); // authoritative (covers cancelled/incomplete)
       if (run.error) setError(run.error);
     } catch (e: any) {
@@ -654,6 +593,20 @@ export default function Home() {
                 <span className="select-all font-mono text-xs text-cl-slate">
                   run {runId}
                 </span>
+              )}
+              {runId && !live && (
+                <a
+                  href={`/api/runs/${runId}/markdown`}
+                  download
+                  className={`ml-auto inline-flex h-9 items-center gap-2 rounded-btn border border-cl-border bg-white px-3 text-sm font-bold uppercase tracking-wider text-cl-blue hover:bg-cl-ice ${focusRing}`}
+                >
+                  <Download
+                    className="h-4 w-4"
+                    aria-hidden="true"
+                    strokeWidth={1.75}
+                  />
+                  Download Markdown
+                </a>
               )}
             </div>
 
@@ -918,14 +871,35 @@ function HistoryRail({
         <h2 className="text-sm font-bold uppercase tracking-wider text-cl-blue">
           History
         </h2>
-        <button
-          type="button"
-          onClick={onRefresh}
-          aria-label="Refresh history"
-          className={`inline-flex h-8 w-8 items-center justify-center rounded-btn text-cl-slate hover:bg-cl-ice hover:text-cl-blue ${focusRing}`}
-        >
-          <RotateCw className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
-        </button>
+        <div className="flex items-center gap-1">
+          {history.length > 0 && (
+            <a
+              href="/api/runs/export"
+              download
+              aria-label="Export all runs as Markdown"
+              title="Export all runs as Markdown"
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-btn text-cl-slate hover:bg-cl-ice hover:text-cl-blue ${focusRing}`}
+            >
+              <Download
+                className="h-4 w-4"
+                aria-hidden="true"
+                strokeWidth={1.75}
+              />
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={onRefresh}
+            aria-label="Refresh history"
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-btn text-cl-slate hover:bg-cl-ice hover:text-cl-blue ${focusRing}`}
+          >
+            <RotateCw
+              className="h-4 w-4"
+              aria-hidden="true"
+              strokeWidth={1.75}
+            />
+          </button>
+        </div>
       </div>
       <HistoryList
         history={history}
@@ -956,13 +930,13 @@ function HistoryList({
       {history.map((h) => {
         const selected = h.id === runId;
         return (
-          <li key={h.id}>
+          <li key={h.id} className="relative">
             <button
               type="button"
               onClick={() => onReplay(h.id)}
               disabled={live}
               aria-current={selected ? "true" : undefined}
-              className={`w-full rounded-card border border-cl-border bg-white p-3 text-left hover:bg-cl-ice disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${
+              className={`w-full rounded-card border border-cl-border bg-white p-3 pr-10 text-left hover:bg-cl-ice disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${
                 selected ? "border-l-4 border-l-cl-blue bg-cl-ice pl-2" : ""
               }`}
             >
@@ -980,6 +954,16 @@ function HistoryList({
                 {new Date(h.created_at).toLocaleString()}
               </div>
             </button>
+            <a
+              href={`/api/runs/${h.id}/markdown`}
+              download
+              onClick={(e) => e.stopPropagation()}
+              aria-label="Download this run as Markdown"
+              title="Download Markdown"
+              className={`absolute bottom-2 right-2 inline-flex h-7 w-7 items-center justify-center rounded-btn text-slate-400 hover:bg-white hover:text-cl-blue ${focusRing}`}
+            >
+              <Download className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
+            </a>
           </li>
         );
       })}
@@ -1128,7 +1112,7 @@ function FanoutTable({ fanouts }: { fanouts: Fanout[] }) {
         <tbody>
           {fanouts.map((f) => {
             const action = describeAction(f.action);
-            const Icon = action.icon;
+            const Icon = iconFor(action.kind);
             const detail = action.detail ?? "";
             return (
               <tr key={f.id} className="h-9 even:bg-cl-ice/50">
