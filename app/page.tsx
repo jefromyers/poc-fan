@@ -63,6 +63,9 @@ export default function Home() {
   const [model, setModel] = useState<string>(DOCUMENTED_MODEL_FALLBACK[0]);
   const [effort, setEffort] = useState<(typeof EFFORTS)[number]>("medium");
   const [query, setQuery] = useState("");
+  // The prompt of the run currently being shown (live or replayed). Kept apart
+  // from the editable `query` so a loaded run always displays its own prompt.
+  const [activePrompt, setActivePrompt] = useState<string | null>(null);
 
   const [status, setStatus] = useState<ViewStatus>("idle");
   const [runId, setRunId] = useState<string | null>(null);
@@ -131,6 +134,7 @@ export default function Home() {
 
   function reset() {
     setRunId(null);
+    setActivePrompt(null);
     setError(null);
     setFanouts([]);
     setSources([]);
@@ -339,6 +343,7 @@ export default function Home() {
   async function run() {
     if (!query.trim() || live) return;
     reset();
+    setActivePrompt(query.trim());
     setStatus("running");
     setLive(true);
 
@@ -412,6 +417,13 @@ export default function Home() {
         return;
       }
       const { run, events } = await r.json();
+      // Restore the prompt (and the form fields) so the loaded run shows what
+      // was asked and can be re-run. Guard model/effort against unknown values.
+      setActivePrompt(run.query ?? "");
+      setQuery(run.query ?? "");
+      if (run.model) setModel(run.model);
+      if (run.effort && (EFFORTS as readonly string[]).includes(run.effort))
+        setEffort(run.effort as (typeof EFFORTS)[number]);
       // Derive the whole view in one shot via the shared reducer (the canonical
       // rule set, also used by the server markdown export) instead of replaying
       // events one-by-one through the live state setters.
@@ -609,6 +621,14 @@ export default function Home() {
                 </a>
               )}
             </div>
+
+            {activePrompt && (
+              <Panel title="Prompt" className="mb-4">
+                <p className="whitespace-pre-wrap break-words text-base leading-relaxed text-cl-slate">
+                  {activePrompt}
+                </p>
+              </Panel>
+            )}
 
             {error && <AlertBlock title="Run failed" message={error} />}
 
