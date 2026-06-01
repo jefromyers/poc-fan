@@ -32,17 +32,33 @@ export type DerivedRunState = {
   answer: string;
   fanouts: Fanout[];
   sources: Source[]; // deduped by normalizeUrl
-  consultedUrls: Set<string>;
+  consultedUrls: Set<string>; // surfaced in search results (not necessarily read)
+  openedUrls: Set<string>; // explicitly opened via open_page / find_in_page
   citedUrls: Set<string>;
   citationCount: number;
 };
+
+// Tracking / analytics query params that identify a click, not a page. They are
+// stripped before dedup so the same page isn't counted twice — e.g. the
+// ?utm_source=openai and ?msockid=… variants OpenAI's web tool appends. Any
+// param whose name starts with "utm_" is also dropped. Matched case-insensitively.
+const TRACKING_PARAMS = new Set([
+  "msockid", "fbclid", "gclid", "gclsrc", "dclid", "gbraid", "wbraid",
+  "gad_source", "wt_mc", "yclid", "twclid", "ttclid", "igshid", "igsh",
+  "mc_cid", "mc_eid", "_hsenc", "_hsmi", "mkt_tok", "vero_id", "oly_anon_id",
+  "oly_enc_id", "scid", "spm", "cmpid", "icid", "ic_id",
+]);
 
 export function normalizeUrl(raw: string): string {
   try {
     const u = new URL(raw);
     for (const key of [...u.searchParams.keys()]) {
-      if (key.toLowerCase().startsWith("utm_")) u.searchParams.delete(key);
+      const k = key.toLowerCase();
+      if (k.startsWith("utm_") || TRACKING_PARAMS.has(k))
+        u.searchParams.delete(key);
     }
+    // Canonicalize remaining param order so ?a=1&b=2 and ?b=2&a=1 collapse.
+    u.searchParams.sort();
     u.hostname = u.hostname.toLowerCase();
     if (u.pathname.length > 1 && u.pathname.endsWith("/"))
       u.pathname = u.pathname.slice(0, -1);
@@ -253,6 +269,15 @@ export function deriveRunState(events: StreamEvent[]): DerivedRunState {
     }
   }
 
+  // Pages the model demonstrably opened (open_page / find_in_page actions), as
+  // opposed to URLs that merely surfaced in a search result listing.
+  const openedUrls = new Set<string>();
+  for (const f of fanouts) {
+    const t = f.action?.type;
+    if ((t === "open_page" || t === "find_in_page") && f.action?.url)
+      openedUrls.add(normalizeUrl(f.action.url));
+  }
+
   return {
     reasoning: reasoningParts.join("\n\n"),
     reasoningParts,
@@ -260,6 +285,7 @@ export function deriveRunState(events: StreamEvent[]): DerivedRunState {
     fanouts,
     sources,
     consultedUrls,
+    openedUrls,
     citedUrls,
     citationCount,
   };
