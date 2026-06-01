@@ -296,23 +296,39 @@ export function runsToCompareMarkdown(inputs: CompareInput[]): string {
   }
   out.push("");
 
-  // --- Per-run cited domains ------------------------------------------------
-  out.push("## Cited domains per run");
+  // --- Per-run footprint ----------------------------------------------------
+  // Each run's whole research territory: every domain it touched (consulted +
+  // cited) with page counts, ✓ marking domains that contributed a citation —
+  // plus the quick cited-only list called out separately.
+  out.push("## Research footprint per run");
   out.push("");
   out.push(
-    "_Domains the run actually cited in its answer, separate from everything " +
-      "it merely consulted._",
+    "_Every domain the run touched, by pages read (✓ = contributed a citation). " +
+      "The **Cited** line is the quick list of what actually shaped the answer._",
   );
   out.push("");
   for (const r of runs) {
     out.push(`### ${r.key} — ${clip(r.run.query || "(empty)", 80)}`);
     out.push("");
-    const doms = domainCounts(r.d.citedUrls);
-    if (doms.length === 0) {
-      out.push("_No cited sources._");
-    } else {
-      for (const [dom, n] of doms) out.push(`- ${dom}${n > 1 ? ` (${n})` : ""}`);
+    const citedDomains = domainsOf(r.d.citedUrls);
+    const citedList = domainCounts(r.d.citedUrls);
+    out.push(
+      `**Cited:** ` +
+        (citedList.length
+          ? citedList.map(([d, n]) => `${d}${n > 1 ? ` (${n})` : ""}`).join(", ")
+          : "_none_"),
+    );
+    out.push("");
+    const footprint = domainCounts(r.read);
+    out.push(
+      `**Footprint** — ${footprint.length} domain${footprint.length === 1 ? "" : "s"} across ${r.read.size} pages:`,
+    );
+    for (const [dom, n] of footprint.slice(0, MAX_LISTED * 2)) {
+      const mark = citedDomains.has(dom) ? " ✓" : "";
+      out.push(`- ${dom}${n > 1 ? ` (${n})` : ""}${mark}`);
     }
+    if (footprint.length > MAX_LISTED * 2)
+      out.push(`- _+${footprint.length - MAX_LISTED * 2} more_`);
     out.push("");
   }
 
