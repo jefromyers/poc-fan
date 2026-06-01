@@ -41,6 +41,7 @@ type RunSummary = {
   effort: string | null;
   status: RunStatus;
   created_at: string;
+  query: string;
   query_preview: string;
 };
 
@@ -996,8 +997,9 @@ function HistoryList({
         const selected = h.id === runId;
         const checked = compareIds.includes(h.id);
         const order = compareIds.indexOf(h.id);
+        const fullPrompt = (h.query ?? "").trim();
         return (
-          <li key={h.id} className="relative">
+          <li key={h.id} className="group relative">
             <button
               type="button"
               onClick={() => onReplay(h.id)}
@@ -1011,16 +1013,32 @@ function HistoryList({
                 <span className="font-semibold text-cl-blue">{h.model}</span>
                 <StatusBadge status={h.status} />
               </div>
-              <div
-                className="mt-2 truncate text-sm text-cl-slate"
-                title={h.query_preview || "(empty)"}
-              >
+              <div className="mt-2 truncate text-sm text-cl-slate">
                 {h.query_preview || "(empty)"}
               </div>
               <div className="mt-1 text-xs text-slate-500">
                 {new Date(h.created_at).toLocaleString()}
               </div>
             </button>
+            {fullPrompt && (
+              // Full-prompt popover: appears to the right of the card on hover or
+              // keyboard focus (desktop rail only — md+). The transparent pl-2
+              // bridges the gap so moving the cursor onto the panel doesn't dismiss
+              // it, letting long prompts be scrolled.
+              <div className="absolute left-full top-0 z-50 hidden pl-2 md:group-hover:block md:group-focus-within:block">
+                <div
+                  role="tooltip"
+                  className="max-h-80 w-80 overflow-y-auto rounded-card border border-cl-border bg-white p-3 shadow-xl"
+                >
+                  <div className="mb-1 text-xs font-bold uppercase tracking-wider text-cl-blue">
+                    Prompt
+                  </div>
+                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-cl-slate">
+                    {fullPrompt}
+                  </p>
+                </div>
+              </div>
+            )}
             <label
               className="absolute left-2 top-3 inline-flex cursor-pointer items-center"
               title="Select for comparison"
