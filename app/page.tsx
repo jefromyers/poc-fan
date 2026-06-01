@@ -8,6 +8,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  GitCompare,
   Globe,
   History,
   RotateCw,
@@ -84,6 +85,7 @@ export default function Home() {
   const [raw, setRaw] = useState<StreamEvent[]>([]);
 
   const [history, setHistory] = useState<RunSummary[]>([]);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const historyButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -452,6 +454,12 @@ export default function Home() {
     replay(id);
   }
 
+  function toggleCompare(id: string) {
+    setCompareIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
+
   return (
     <div className="min-h-screen bg-cl-bg text-cl-slate">
       <header className="border-b border-cl-border bg-white">
@@ -489,6 +497,8 @@ export default function Home() {
           history={history}
           runId={runId}
           live={live}
+          compareIds={compareIds}
+          onToggleCompare={toggleCompare}
           onRefresh={refreshHistory}
           onReplay={replay}
         />
@@ -832,6 +842,8 @@ export default function Home() {
                 history={history}
                 runId={runId}
                 live={live}
+                compareIds={compareIds}
+                onToggleCompare={toggleCompare}
                 onReplay={replayFromHistory}
               />
             </div>
@@ -873,12 +885,16 @@ function HistoryRail({
   history,
   runId,
   live,
+  compareIds,
+  onToggleCompare,
   onRefresh,
   onReplay,
 }: {
   history: RunSummary[];
   runId: string | null;
   live: boolean;
+  compareIds: string[];
+  onToggleCompare: (id: string) => void;
   onRefresh: () => void;
   onReplay: (id: string) => void;
 }) {
@@ -921,13 +937,38 @@ function HistoryRail({
           </button>
         </div>
       </div>
+      <CompareBar compareIds={compareIds} />
       <HistoryList
         history={history}
         runId={runId}
         live={live}
+        compareIds={compareIds}
+        onToggleCompare={onToggleCompare}
         onReplay={onReplay}
       />
     </nav>
+  );
+}
+
+// Sticky call-to-action shown once 2+ runs are checked for comparison. Order of
+// the ids is preserved so the comparison's A/B/C labels match selection order.
+function CompareBar({ compareIds }: { compareIds: string[] }) {
+  if (compareIds.length < 2) {
+    return (
+      <p className="mb-3 text-xs text-slate-500">
+        Tick 2+ runs to compare which pages they share.
+      </p>
+    );
+  }
+  return (
+    <a
+      href={`/api/runs/compare?ids=${compareIds.join(",")}`}
+      download
+      className={`mb-3 inline-flex w-full items-center justify-center gap-2 rounded-btn bg-cl-blue px-3 py-2 text-sm font-semibold text-white hover:bg-cl-navy ${focusRing}`}
+    >
+      <GitCompare className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
+      Compare {compareIds.length} runs
+    </a>
   );
 }
 
@@ -935,11 +976,15 @@ function HistoryList({
   history,
   runId,
   live,
+  compareIds,
+  onToggleCompare,
   onReplay,
 }: {
   history: RunSummary[];
   runId: string | null;
   live: boolean;
+  compareIds: string[];
+  onToggleCompare: (id: string) => void;
   onReplay: (id: string) => void;
 }) {
   if (history.length === 0)
@@ -949,6 +994,8 @@ function HistoryList({
     <ul className="space-y-2">
       {history.map((h) => {
         const selected = h.id === runId;
+        const checked = compareIds.includes(h.id);
+        const order = compareIds.indexOf(h.id);
         return (
           <li key={h.id} className="relative">
             <button
@@ -956,8 +1003,8 @@ function HistoryList({
               onClick={() => onReplay(h.id)}
               disabled={live}
               aria-current={selected ? "true" : undefined}
-              className={`w-full rounded-card border border-cl-border bg-white p-3 pr-10 text-left hover:bg-cl-ice disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${
-                selected ? "border-l-4 border-l-cl-blue bg-cl-ice pl-2" : ""
+              className={`w-full rounded-card border border-cl-border bg-white p-3 pl-9 pr-10 text-left hover:bg-cl-ice disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${
+                selected ? "border-l-4 border-l-cl-blue bg-cl-ice" : ""
               }`}
             >
               <div className="flex items-start justify-between gap-2">
@@ -974,6 +1021,24 @@ function HistoryList({
                 {new Date(h.created_at).toLocaleString()}
               </div>
             </button>
+            <label
+              className="absolute left-2 top-3 inline-flex cursor-pointer items-center"
+              title="Select for comparison"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => onToggleCompare(h.id)}
+                aria-label={`Select run for comparison${order >= 0 ? `, position ${order + 1}` : ""}`}
+                className={`h-4 w-4 rounded border-cl-border text-cl-blue ${focusRing}`}
+              />
+              {order >= 0 && (
+                <span className="ml-1 text-[10px] font-bold tabular-nums text-cl-blue">
+                  {String.fromCharCode(65 + order)}
+                </span>
+              )}
+            </label>
             <a
               href={`/api/runs/${h.id}/markdown`}
               download

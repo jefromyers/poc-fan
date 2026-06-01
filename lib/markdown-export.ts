@@ -59,9 +59,10 @@ function tokensLine(usage: unknown): string {
   return parts.join(" · ");
 }
 
-function sourceLine(s: Source): string {
+function sourceLine(s: Source, opened: Set<string>): string {
   const title = (s.title || s.url).replace(/[\[\]]/g, "");
-  return `- [${title}](${s.url}) — ${domain(s.url)}`;
+  const tag = opened.has(normalizeUrl(s.url)) ? " · _opened_" : "";
+  return `- [${title}](${s.url}) — ${domain(s.url)}${tag}`;
 }
 
 export function runToMarkdown(
@@ -117,14 +118,24 @@ export function runToMarkdown(
   );
   out.push("## Sources");
   out.push("");
+  out.push(
+    "> Consulted pages *surfaced* in the model's search results; only pages " +
+      "marked _opened_ were demonstrably read in full (via an Open action). " +
+      "Cited pages are those referenced in the answer.",
+  );
+  out.push("");
   out.push(`### Cited (${cited.length})`);
   out.push("");
-  out.push(cited.length ? cited.map(sourceLine).join("\n") : "_None._");
+  out.push(
+    cited.length ? cited.map((s) => sourceLine(s, d.openedUrls)).join("\n") : "_None._",
+  );
   out.push("");
   out.push(`### Consulted but not cited (${consultedOnly.length})`);
   out.push("");
   out.push(
-    consultedOnly.length ? consultedOnly.map(sourceLine).join("\n") : "_None._",
+    consultedOnly.length
+      ? consultedOnly.map((s) => sourceLine(s, d.openedUrls)).join("\n")
+      : "_None._",
   );
   out.push("");
 
