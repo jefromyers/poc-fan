@@ -17,6 +17,7 @@ export async function GET() {
   await initDb();
   const { rows } = await pool.query(
     `SELECT id, model, effort, status, created_at,
+            query,
             left(query, 80) AS query_preview
      FROM runs
      ORDER BY created_at DESC
