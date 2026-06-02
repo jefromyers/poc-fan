@@ -332,5 +332,37 @@ export function runsToCompareMarkdown(inputs: CompareInput[]): string {
     out.push("");
   }
 
+  // --- Outputs per run ------------------------------------------------------
+  // The full prompt and the model's answer for each run, so the conclusions can
+  // be compared against the sources/overlap above. Answers are already Markdown
+  // and emitted verbatim.
+  out.push("## Outputs per run");
+  out.push("");
+  out.push(
+    "_The prompt and the model's answer for each run — compare what each role " +
+      "was asked, what it concluded, and how that tracks with the sources above._",
+  );
+  out.push("");
+  for (const r of runs) {
+    out.push(`### ${r.key} — ${clip(r.run.query || "(empty)", 80)}`);
+    out.push("");
+    out.push("**Prompt:**");
+    out.push("");
+    out.push(blockquote(r.run.query || "(empty)"));
+    out.push("");
+    out.push("**Answer:**");
+    out.push("");
+    out.push(r.d.answer.trim() || "_No answer._");
+    out.push("");
+  }
+
   return out.join("\n").replace(/\n+$/, "\n");
+}
+
+// Prefix every line so multi-line text renders as one Markdown blockquote.
+function blockquote(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((line) => `> ${line}`.trimEnd())
+    .join("\n");
 }
