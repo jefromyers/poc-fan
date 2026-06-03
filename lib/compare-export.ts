@@ -74,6 +74,41 @@ function domainCounts(urls: Iterable<string>): [string, number][] {
   );
 }
 
+// Host without a leading www. Empty string if the URL won't parse.
+function hostOf(u: string): string {
+  try {
+    return new URL(u).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+// Registrable domain heuristic: the last two labels (zenbusiness.com,
+// help.zenbusiness.com → zenbusiness.com). Good enough without a public-suffix
+// list; multi-part TLDs like co.uk will group one level too deep, which is fine
+// for sorting/grouping here.
+function registrable(host: string): string {
+  const parts = host.split(".").filter(Boolean);
+  return parts.length <= 2 ? host : parts.slice(-2).join(".");
+}
+
+// The subdomain portion ahead of the registrable domain ("help" for
+// help.zenbusiness.com; "" for the apex).
+function subOf(host: string): string {
+  const reg = registrable(host);
+  return host.length > reg.length ? host.slice(0, host.length - reg.length - 1) : "";
+}
+
+// Path + remaining (non-tracking) query, already normalized upstream.
+function pathOf(u: string): string {
+  try {
+    const x = new URL(u);
+    return (x.pathname + x.search) || "/";
+  } catch {
+    return "";
+  }
+}
+
 // A symmetric NxN overlap matrix rendered as a Markdown table; cells off the
 // diagonal hold |sets[i] ∩ sets[j]|.
 function matrix(runs: Prepared[], sets: Set<string>[]): string[] {
@@ -331,6 +366,49 @@ export function runsToCompareMarkdown(inputs: CompareInput[]): string {
       out.push(`- _+${footprint.length - MAX_LISTED * 2} more_`);
     out.push("");
   }
+
+  // --- All read URLs (spreadsheet grid) -------------------------------------
+  // Every distinct page any run read (cited or consulted), one row each, sorted
+  // by domain → host (subdomain) → path, with a column per run marking
+  // ✓ cited / • consulted. Meant to be dropped into a spreadsheet.
+  const allUrls = new Set<string>();
+  for (const r of runs) for (const u of r.read) allUrls.add(u);
+  const urlRows = [...allUrls]
+    .map((u) => {
+      const host = hostOf(u);
+      return { u, host, reg: registrable(host), sub: subOf(host), path: pathOf(u) };
+    })
+    .sort(
+      (a, b) =>
+        a.reg.localeCompare(b.reg) ||
+        a.host.localeCompare(b.host) ||
+        a.path.localeCompare(b.path),
+    );
+
+  out.push(`## All read URLs (${urlRows.length})`);
+  out.push("");
+  out.push(
+    "_Every page any run read, sorted by domain → subdomain → path. " +
+      "✓ = cited · • = consulted (surfaced in results)._",
+  );
+  out.push("");
+  out.push(
+    `| Domain | Subdomain | Path | ${runs.map((r) => r.key).join(" | ")} | URL |`,
+  );
+  out.push(
+    `| --- | --- | --- | ${runs.map(() => ":-:").join(" | ")} | --- |`,
+  );
+  for (const row of urlRows) {
+    const marks = runs.map((r) =>
+      r.d.citedUrls.has(row.u) ? "✓" : r.read.has(row.u) ? "•" : "",
+    );
+    const display = titleByUrl.get(row.u)?.url ?? row.u;
+    out.push(
+      `| ${cell(row.reg)} | ${cell(row.sub || "—")} | ${cell(row.path)} | ` +
+        `${marks.join(" | ")} | ${cell(display)} |`,
+    );
+  }
+  out.push("");
 
   // --- Outputs per run ------------------------------------------------------
   // The full prompt and the model's answer for each run, so the conclusions can
