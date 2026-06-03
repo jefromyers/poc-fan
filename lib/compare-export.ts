@@ -487,3 +487,20 @@ function blockquote(text: string): string {
     .map((line) => `> ${line}`.trimEnd())
     .join("\n");
 }
+
+// Distinct, meaningful download name for a comparison: a slug from the first
+// run's prompt + the run count + each run's short id, so different selections
+// (and different decisions) don't all collide on one filename.
+export function compareFilename(
+  runs: { id: string; query: string }[],
+): string {
+  const slug =
+    (runs[0]?.query ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40)
+      .replace(/-+$/g, "") || "runs";
+  const ids = runs.map((r) => r.id.slice(0, 4)).join("-").slice(0, 40);
+  return `compare-${slug}-${runs.length}runs-${ids}.md`;
+}

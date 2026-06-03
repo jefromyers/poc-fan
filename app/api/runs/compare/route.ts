@@ -1,5 +1,9 @@
 import { initDb, pool } from "@/lib/db";
-import { runsToCompareMarkdown, type CompareInput } from "@/lib/compare-export";
+import {
+  compareFilename,
+  runsToCompareMarkdown,
+  type CompareInput,
+} from "@/lib/compare-export";
 import type { StreamEvent } from "@/lib/events";
 import type { RunRow } from "@/lib/markdown-export";
 
@@ -64,11 +68,12 @@ export async function GET(req: Request) {
   }
 
   const markdown = runsToCompareMarkdown(inputs);
+  const filename = compareFilename(inputs.map((i) => i.run));
 
   return new Response(markdown, {
     headers: {
       "Content-Type": "text/markdown; charset=utf-8",
-      "Content-Disposition": `attachment; filename="thinking-inspector-comparison.md"`,
+      "Content-Disposition": `attachment; filename="${filename}"`,
       "Cache-Control": "no-store",
     },
   });
