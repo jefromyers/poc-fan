@@ -149,7 +149,12 @@ function findIsolate(runs: Prepared[], sets: Set<string>[]) {
 export function runsToCompareMarkdown(inputs: CompareInput[]): string {
   const runs: Prepared[] = inputs.map((inp, i) => {
     const d = deriveRunState(inp.events);
-    const read = new Set<string>([...d.consultedUrls, ...d.citedUrls]);
+    // Everything the run engaged with: surfaced (consulted), opened, or cited.
+    const read = new Set<string>([
+      ...d.consultedUrls,
+      ...d.openedUrls,
+      ...d.citedUrls,
+    ]);
     return { key: keyFor(i), run: inp.run, d, read, domains: domainsOf(read) };
   });
 
@@ -367,6 +372,38 @@ export function runsToCompareMarkdown(inputs: CompareInput[]): string {
     out.push("");
   }
 
+  // --- Opened pages per run -------------------------------------------------
+  // Pages the model demonstrably opened (Open / find-in-page actions) — read in
+  // full, not just surfaced. The strongest signal of deliberate attention.
+  out.push("## Opened pages per run");
+  out.push("");
+  out.push(
+    "_Pages the model actually opened and read in full (not just surfaced in " +
+      "search results). ✓ marks ones it then cited._",
+  );
+  out.push("");
+  for (const r of runs) {
+    out.push(`### ${r.key} — ${clip(r.run.query || "(empty)", 80)}`);
+    out.push("");
+    const opened = [...r.d.openedUrls].sort(
+      (a, b) =>
+        hostOf(a).localeCompare(hostOf(b)) || pathOf(a).localeCompare(pathOf(b)),
+    );
+    if (opened.length === 0) {
+      out.push("_None opened — every source merely surfaced in search results._");
+    } else {
+      for (const u of opened) {
+        const info = titleByUrl.get(u) ?? { url: u, title: u };
+        const title = (info.title || info.url).replace(/[\[\]]/g, "");
+        const citedMark = r.d.citedUrls.has(u) ? " ✓" : "";
+        out.push(
+          `- [${clip(title, 90)}](${info.url}) — ${domain(info.url)}${citedMark}`,
+        );
+      }
+    }
+    out.push("");
+  }
+
   // --- All read URLs (spreadsheet grid) -------------------------------------
   // Every distinct page any run read (cited or consulted), one row each, sorted
   // by domain → host (subdomain) → path, with a column per run marking
@@ -389,7 +426,7 @@ export function runsToCompareMarkdown(inputs: CompareInput[]): string {
   out.push("");
   out.push(
     "_Every page any run read, sorted by domain → subdomain → path. " +
-      "✓ = cited · • = consulted (surfaced in results)._",
+      "✓ = cited · ◆ = opened (read in full) · • = consulted (surfaced only)._",
   );
   out.push("");
   out.push(
@@ -400,7 +437,13 @@ export function runsToCompareMarkdown(inputs: CompareInput[]): string {
   );
   for (const row of urlRows) {
     const marks = runs.map((r) =>
-      r.d.citedUrls.has(row.u) ? "✓" : r.read.has(row.u) ? "•" : "",
+      r.d.citedUrls.has(row.u)
+        ? "✓"
+        : r.d.openedUrls.has(row.u)
+          ? "◆"
+          : r.read.has(row.u)
+            ? "•"
+            : "",
     );
     const display = titleByUrl.get(row.u)?.url ?? row.u;
     out.push(
