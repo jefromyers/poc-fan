@@ -1078,15 +1078,27 @@ function CompareBar({ compareIds }: { compareIds: string[] }) {
       </p>
     );
   }
+  const ids = compareIds.join(",");
   return (
-    <a
-      href={`/api/runs/compare?ids=${compareIds.join(",")}`}
-      download
-      className={`mb-3 inline-flex w-full items-center justify-center gap-2 rounded-btn bg-cl-blue px-3 py-2 text-sm font-semibold text-white hover:bg-cl-navy ${focusRing}`}
-    >
-      <GitCompare className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
-      Compare {compareIds.length} runs
-    </a>
+    <div className="mb-3 flex flex-col gap-2">
+      <a
+        href={`/api/runs/compare?ids=${ids}`}
+        download
+        className={`inline-flex w-full items-center justify-center gap-2 rounded-btn bg-cl-blue px-3 py-2 text-sm font-semibold text-white hover:bg-cl-navy ${focusRing}`}
+      >
+        <GitCompare className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
+        Compare {compareIds.length} runs
+      </a>
+      <a
+        href={`/api/runs/compare/deep?ids=${ids}`}
+        download
+        title="Multi-resolution read-URL graph (CSV + JSON + Markdown, zipped)"
+        className={`inline-flex w-full items-center justify-center gap-2 rounded-btn border border-cl-blue bg-white px-3 py-2 text-sm font-semibold text-cl-blue hover:bg-cl-ice ${focusRing}`}
+      >
+        <ScanSearch className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
+        Deep compare {compareIds.length} runs
+      </a>
+    </div>
   );
 }
 
