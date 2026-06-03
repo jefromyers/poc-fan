@@ -13,6 +13,7 @@ import {
   History,
   RotateCcw,
   RotateCw,
+  Trash2,
   ScanSearch,
   Search,
   X,
@@ -389,9 +390,11 @@ export default function Home() {
     return runWith({ query, model, effort });
   }
 
-  // Re-run a previous prompt (e.g. a failed/cancelled one) as a fresh run. Falls
-  // back to the current form values for anything the summary doesn't carry.
-  function retry(h: RunSummary) {
+  // Re-run a previous prompt (e.g. a failed/cancelled one) as a fresh run,
+  // replacing the old dead run so history keeps one card per prompt. Falls back
+  // to the current form values for anything the summary doesn't carry.
+  async function retry(h: RunSummary) {
+    await deleteRun(h.id);
     return runWith({
       query: h.query,
       model: h.model,
@@ -399,6 +402,25 @@ export default function Home() {
         ? (h.effort as (typeof EFFORTS)[number])
         : effort,
     });
+  }
+
+  // Delete a run (row + events) from the DB and drop it from the UI. Used by the
+  // history trashcan and by retry's replace step. Best-effort: a 404 (already
+  // gone) is treated as success.
+  async function deleteRun(id: string) {
+    try {
+      const r = await fetch(`/api/runs/${id}`, { method: "DELETE" });
+      if (!r.ok && r.status !== 404) return false;
+    } catch {
+      return false;
+    }
+    setHistory((prev) => prev.filter((h) => h.id !== id));
+    setCompareIds((prev) => prev.filter((x) => x !== id));
+    if (runId === id) {
+      reset();
+      setStatus("idle");
+    }
+    return true;
   }
 
   async function runWith(opts: {
@@ -575,6 +597,7 @@ export default function Home() {
           onRefresh={refreshHistory}
           onReplay={replay}
           onRetry={retry}
+          onDelete={deleteRun}
           onLoadMore={loadMoreHistory}
         />
 
@@ -923,6 +946,7 @@ export default function Home() {
                 onToggleCompare={toggleCompare}
                 onReplay={replayFromHistory}
                 onRetry={retry}
+                onDelete={deleteRun}
                 onLoadMore={loadMoreHistory}
               />
             </div>
@@ -971,6 +995,7 @@ function HistoryRail({
   onRefresh,
   onReplay,
   onRetry,
+  onDelete,
   onLoadMore,
 }: {
   history: RunSummary[];
@@ -983,6 +1008,7 @@ function HistoryRail({
   onRefresh: () => void;
   onReplay: (id: string) => void;
   onRetry: (h: RunSummary) => void;
+  onDelete: (id: string) => void;
   onLoadMore: () => void;
 }) {
   return (
@@ -1035,6 +1061,7 @@ function HistoryRail({
         onToggleCompare={onToggleCompare}
         onReplay={onReplay}
         onRetry={onRetry}
+        onDelete={onDelete}
         onLoadMore={onLoadMore}
       />
     </nav>
@@ -1073,6 +1100,7 @@ function HistoryList({
   onToggleCompare,
   onReplay,
   onRetry,
+  onDelete,
   onLoadMore,
 }: {
   history: RunSummary[];
@@ -1084,6 +1112,7 @@ function HistoryList({
   onToggleCompare: (id: string) => void;
   onReplay: (id: string) => void;
   onRetry: (h: RunSummary) => void;
+  onDelete: (id: string) => void;
   onLoadMore: () => void;
 }) {
   if (history.length === 0)
@@ -1115,7 +1144,11 @@ function HistoryList({
               <div className="mt-2 truncate text-sm text-cl-slate">
                 {h.query_preview || "(empty)"}
               </div>
-              <div className="mt-1 pr-16 text-xs text-slate-500">
+              <div
+                className={`mt-1 truncate text-xs text-slate-500 ${
+                  RETRYABLE.has(h.status) ? "pr-24" : "pr-16"
+                }`}
+              >
                 {new Date(h.created_at).toLocaleString()}
               </div>
             </button>
@@ -1166,11 +1199,27 @@ function HistoryList({
                 disabled={live}
                 aria-label="Retry this run"
                 title="Retry"
-                className={`absolute bottom-2 right-9 inline-flex h-7 w-7 items-center justify-center rounded-btn text-slate-400 hover:bg-white hover:text-cl-blue disabled:cursor-not-allowed disabled:opacity-40 ${focusRing}`}
+                className={`absolute bottom-2 right-16 inline-flex h-7 w-7 items-center justify-center rounded-btn text-slate-400 hover:bg-white hover:text-cl-blue disabled:cursor-not-allowed disabled:opacity-40 ${focusRing}`}
               >
                 <RotateCcw className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
               </button>
             )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (
+                  window.confirm("Delete this run? This can't be undone.")
+                )
+                  onDelete(h.id);
+              }}
+              disabled={live}
+              aria-label="Delete this run"
+              title="Delete"
+              className={`absolute bottom-2 right-9 inline-flex h-7 w-7 items-center justify-center rounded-btn text-slate-400 hover:bg-white hover:text-cl-error disabled:cursor-not-allowed disabled:opacity-40 ${focusRing}`}
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
+            </button>
             <a
               href={`/api/runs/${h.id}/markdown`}
               download
