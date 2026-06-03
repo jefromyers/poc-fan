@@ -11,6 +11,7 @@ import {
   GitCompare,
   Globe,
   History,
+  RotateCcw,
   RotateCw,
   ScanSearch,
   Search,
@@ -31,6 +32,14 @@ import { DOCUMENTED_MODEL_FALLBACK } from "@/lib/model-options";
 import { Markdown } from "./markdown";
 
 const EFFORTS = ["none", "low", "medium", "high", "xhigh"] as const;
+const HISTORY_PAGE_SIZE = 20;
+
+// Terminal statuses that didn't produce a finished answer — offer a retry.
+const RETRYABLE: ReadonlySet<RunStatus> = new Set([
+  "failed",
+  "cancelled",
+  "incomplete",
+]);
 
 type ViewStatus = "idle" | RunStatus;
 type BadgeStatus = ViewStatus | Fanout["status"];
@@ -86,6 +95,9 @@ export default function Home() {
   const [raw, setRaw] = useState<StreamEvent[]>([]);
 
   const [history, setHistory] = useState<RunSummary[]>([]);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -331,22 +343,80 @@ export default function Home() {
     }
   }
 
+  // Load (or reload) the newest page, resetting pagination. Called on mount, by
+  // the refresh button, and after a run finishes so latest statuses show.
   async function refreshHistory() {
     try {
-      const r = await fetch("/api/runs");
-      if (r.ok) setHistory((await r.json()).runs ?? []);
+      const r = await fetch(`/api/runs?limit=${HISTORY_PAGE_SIZE}`);
+      if (!r.ok) return;
+      const data = await r.json();
+      setHistory(data.runs ?? []);
+      setHistoryCursor(data.nextBefore ?? null);
+      setHistoryHasMore(Boolean(data.hasMore));
     } catch {
       /* non-fatal */
+    }
+  }
+
+  // Append the next older page via keyset cursor; dedupe by id for safety.
+  async function loadMoreHistory() {
+    if (!historyCursor || !historyHasMore || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const r = await fetch(
+        `/api/runs?limit=${HISTORY_PAGE_SIZE}&before=${encodeURIComponent(historyCursor)}`,
+      );
+      if (!r.ok) return;
+      const data = await r.json();
+      const incoming: RunSummary[] = data.runs ?? [];
+      setHistory((prev) => {
+        const seen = new Set(prev.map((h) => h.id));
+        return [...prev, ...incoming.filter((h) => !seen.has(h.id))];
+      });
+      setHistoryCursor(data.nextBefore ?? null);
+      setHistoryHasMore(Boolean(data.hasMore));
+    } catch {
+      /* non-fatal */
+    } finally {
+      setLoadingMore(false);
     }
   }
   useEffect(() => {
     refreshHistory();
   }, []);
 
-  async function run() {
-    if (!query.trim() || live) return;
+  function run() {
+    return runWith({ query, model, effort });
+  }
+
+  // Re-run a previous prompt (e.g. a failed/cancelled one) as a fresh run. Falls
+  // back to the current form values for anything the summary doesn't carry.
+  function retry(h: RunSummary) {
+    return runWith({
+      query: h.query,
+      model: h.model,
+      effort: (EFFORTS as readonly string[]).includes(h.effort ?? "")
+        ? (h.effort as (typeof EFFORTS)[number])
+        : effort,
+    });
+  }
+
+  async function runWith(opts: {
+    query: string;
+    model: string;
+    effort: (typeof EFFORTS)[number];
+  }) {
+    const q = opts.query.trim();
+    if (!q || live) return;
+    const { model: m, effort: e } = opts;
+
+    // Reflect the run's params in the form so the UI matches what's running.
+    setQuery(q);
+    setModel(m);
+    setEffort(e);
+
     reset();
-    setActivePrompt(query.trim());
+    setActivePrompt(q);
     setStatus("running");
     setLive(true);
 
@@ -357,7 +427,7 @@ export default function Home() {
       const res = await fetch("/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model, query, effort }),
+        body: JSON.stringify({ model: m, query: q, effort: e }),
         signal: ac.signal,
       });
       if (!res.ok || !res.body) {
@@ -499,9 +569,13 @@ export default function Home() {
           runId={runId}
           live={live}
           compareIds={compareIds}
+          hasMore={historyHasMore}
+          loadingMore={loadingMore}
           onToggleCompare={toggleCompare}
           onRefresh={refreshHistory}
           onReplay={replay}
+          onRetry={retry}
+          onLoadMore={loadMoreHistory}
         />
 
         <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
@@ -844,8 +918,12 @@ export default function Home() {
                 runId={runId}
                 live={live}
                 compareIds={compareIds}
+                hasMore={historyHasMore}
+                loadingMore={loadingMore}
                 onToggleCompare={toggleCompare}
                 onReplay={replayFromHistory}
+                onRetry={retry}
+                onLoadMore={loadMoreHistory}
               />
             </div>
           </aside>
@@ -887,17 +965,25 @@ function HistoryRail({
   runId,
   live,
   compareIds,
+  hasMore,
+  loadingMore,
   onToggleCompare,
   onRefresh,
   onReplay,
+  onRetry,
+  onLoadMore,
 }: {
   history: RunSummary[];
   runId: string | null;
   live: boolean;
   compareIds: string[];
+  hasMore: boolean;
+  loadingMore: boolean;
   onToggleCompare: (id: string) => void;
   onRefresh: () => void;
   onReplay: (id: string) => void;
+  onRetry: (h: RunSummary) => void;
+  onLoadMore: () => void;
 }) {
   return (
     <nav
@@ -944,8 +1030,12 @@ function HistoryRail({
         runId={runId}
         live={live}
         compareIds={compareIds}
+        hasMore={hasMore}
+        loadingMore={loadingMore}
         onToggleCompare={onToggleCompare}
         onReplay={onReplay}
+        onRetry={onRetry}
+        onLoadMore={onLoadMore}
       />
     </nav>
   );
@@ -978,21 +1068,30 @@ function HistoryList({
   runId,
   live,
   compareIds,
+  hasMore,
+  loadingMore,
   onToggleCompare,
   onReplay,
+  onRetry,
+  onLoadMore,
 }: {
   history: RunSummary[];
   runId: string | null;
   live: boolean;
   compareIds: string[];
+  hasMore: boolean;
+  loadingMore: boolean;
   onToggleCompare: (id: string) => void;
   onReplay: (id: string) => void;
+  onRetry: (h: RunSummary) => void;
+  onLoadMore: () => void;
 }) {
   if (history.length === 0)
     return <p className="text-sm italic text-slate-500">No runs yet.</p>;
 
   return (
-    <ul className="space-y-2">
+    <>
+      <ul className="space-y-2">
       {history.map((h) => {
         const selected = h.id === runId;
         const checked = compareIds.includes(h.id);
@@ -1016,7 +1115,7 @@ function HistoryList({
               <div className="mt-2 truncate text-sm text-cl-slate">
                 {h.query_preview || "(empty)"}
               </div>
-              <div className="mt-1 text-xs text-slate-500">
+              <div className="mt-1 pr-16 text-xs text-slate-500">
                 {new Date(h.created_at).toLocaleString()}
               </div>
             </button>
@@ -1057,6 +1156,21 @@ function HistoryList({
                 </span>
               )}
             </label>
+            {RETRYABLE.has(h.status) && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetry(h);
+                }}
+                disabled={live}
+                aria-label="Retry this run"
+                title="Retry"
+                className={`absolute bottom-2 right-9 inline-flex h-7 w-7 items-center justify-center rounded-btn text-slate-400 hover:bg-white hover:text-cl-blue disabled:cursor-not-allowed disabled:opacity-40 ${focusRing}`}
+              >
+                <RotateCcw className="h-4 w-4" aria-hidden="true" strokeWidth={1.75} />
+              </button>
+            )}
             <a
               href={`/api/runs/${h.id}/markdown`}
               download
@@ -1070,7 +1184,18 @@ function HistoryList({
           </li>
         );
       })}
-    </ul>
+      </ul>
+      {hasMore && (
+        <button
+          type="button"
+          onClick={onLoadMore}
+          disabled={loadingMore}
+          className={`mt-2 w-full rounded-btn border border-cl-border bg-white px-3 py-2 text-sm font-semibold text-cl-blue hover:bg-cl-ice disabled:opacity-50 ${focusRing}`}
+        >
+          {loadingMore ? "Loading…" : "Load more"}
+        </button>
+      )}
+    </>
   );
 }
 

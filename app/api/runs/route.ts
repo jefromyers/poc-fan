@@ -12,18 +12,37 @@ const ALLOWED_MODELS = new Set<string>(MODEL_CANDIDATES);
 type Effort = "none" | "low" | "medium" | "high" | "xhigh";
 const ALLOWED_EFFORT = new Set<string>(["none", "low", "medium", "high", "xhigh"]);
 
-// GET /api/runs — recent runs for the history rail.
-export async function GET() {
+// GET /api/runs — a page of recent runs for the history rail. Keyset paginated:
+// ?limit=N (default 20, max 50) and ?before=<ISO created_at> to fetch the next
+// older page. Returns { runs, nextBefore, hasMore }.
+export async function GET(req: Request) {
   await initDb();
+  const url = new URL(req.url);
+  const limitRaw = Number.parseInt(url.searchParams.get("limit") ?? "20", 10);
+  const limit = Math.min(50, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 20));
+  const before = url.searchParams.get("before");
+
+  const params: unknown[] = [];
+  let where = "";
+  if (before) {
+    params.push(before);
+    where = `WHERE created_at < $1::timestamptz`;
+  }
+  params.push(limit);
+
   const { rows } = await pool.query(
     `SELECT id, model, effort, status, created_at,
             query,
             left(query, 80) AS query_preview
      FROM runs
+     ${where}
      ORDER BY created_at DESC
-     LIMIT 50`,
+     LIMIT $${params.length}`,
+    params,
   );
-  return Response.json({ runs: rows });
+
+  const nextBefore = rows.length ? rows[rows.length - 1].created_at : null;
+  return Response.json({ runs: rows, nextBefore, hasMore: rows.length === limit });
 }
 
 export async function POST(req: Request) {
