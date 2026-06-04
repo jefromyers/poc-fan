@@ -132,7 +132,7 @@ export function buildReadUrlGraph(
     roleLegend.push({
       role,
       run_id: inp.run.id,
-      query: clip(inp.run.query ?? "", 120),
+      query: inp.run.query ?? "", // full prompt — never truncated
       model: inp.run.model,
     });
     return { role, read, cited };
@@ -258,9 +258,12 @@ export function buildReadUrlGraph(
 
 // ---- serializers ----------------------------------------------------------
 
-function clip(value: string, max: number): string {
-  const v = (value ?? "").trim().replace(/\s+/g, " ");
-  return v.length > max ? v.slice(0, max - 1) + "…" : v;
+// Prefix every line so a multi-line prompt renders as one Markdown blockquote.
+function blockquote(text: string): string {
+  return (text || "")
+    .split(/\r?\n/)
+    .map((line) => `> ${line}`.trimEnd())
+    .join("\n");
 }
 
 // RFC-4180 CSV cell: quote if it contains comma, quote, CR or LF; double quotes.
@@ -339,9 +342,12 @@ export function graphToMarkdown(g: ReadUrlGraph): string {
   out.push("## Roles");
   out.push("");
   for (const e of g.roleLegend) {
-    out.push(`- **${e.role}** — ${mdCell(e.query || "(empty)")} _(${mdCell(e.model)}, ${e.run_id.slice(0, 8)})_`);
+    out.push(`### ${e.role} — _${mdCell(e.model)}, ${e.run_id.slice(0, 8)}_`);
+    out.push("");
+    // Full prompt, verbatim — never truncated.
+    out.push(blockquote(e.query || "(empty)"));
+    out.push("");
   }
-  out.push("");
   out.push("## URLs");
   out.push("");
   out.push(

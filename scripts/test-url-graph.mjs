@@ -141,6 +141,16 @@ must(md.includes("## Roles") && md.includes("aaaa1111".slice(0, 8)), "Markdown r
 // 11. filename.
 must(deepCompareFilename([A.run, B.run]).startsWith("deep-compare-regulatory-affairs-lead-2runs-aaaa-bbbb"), "filename shaped correctly");
 
+// 11b. Full prompt is NOT truncated in roleLegend / JSON / Markdown.
+const longPrompt =
+  "I'm the OT security lead deploying ~200 headless edge computers and reviewers now require secure boot, signed updates, attestation, and a defensible vulnerability-handling posture across the whole plant lifecycle for the next decade — what exactly do they expect?";
+const L1 = { run: { id: "dddd4444", model: "gpt-5.5", query: longPrompt, effort: "high", status: "completed", created_at: "2026-01-01" }, events: [search("s4", ["https://nist.gov/x"])] };
+const L2 = { run: { id: "eeee5555", model: "gpt-5.5", query: "short one", effort: "low", status: "completed", created_at: "2026-01-01" }, events: [search("s5", ["https://nist.gov/y"])] };
+const gl = buildReadUrlGraph([L1, L2], { generatedAt: "t" });
+must(gl.roleLegend[0].query === longPrompt, "roleLegend keeps the full prompt (no truncation)");
+must(graphToJson(gl).includes(longPrompt), "JSON contains the full prompt");
+must(graphToMarkdown(gl).includes("next decade — what exactly do they expect?"), "Markdown contains the full prompt tail");
+
 // 12. ZIP integrity via unzip -t.
 const base = deepCompareFilename([A.run, B.run]);
 const zip = zipStore([
