@@ -18,6 +18,7 @@ import {
   deriveRunState,
   domain,
   normalizeUrl,
+  searchQueries,
   type DerivedRunState,
 } from "@/lib/derive";
 import type { StreamEvent } from "@/lib/events";
@@ -400,6 +401,35 @@ export function runsToCompareMarkdown(inputs: CompareInput[]): string {
           `- [${clip(title, 90)}](${info.url}) — ${domain(info.url)}${citedMark}`,
         );
       }
+    }
+    out.push("");
+  }
+
+  // --- Query fan-out per run ------------------------------------------------
+  // The search queries each run issued, in order — how each role framed its
+  // research. Useful context when the markdown is fed to an LLM. Full query text,
+  // never truncated.
+  out.push("## Query fan-out per run");
+  out.push("");
+  out.push(
+    "_Every search query each run issued, in order — shows how each role framed " +
+      "its research before reading anything._",
+  );
+  out.push("");
+  for (const r of runs) {
+    out.push(`### ${r.key} — ${clip(r.run.query || "(empty)", 80)}`);
+    out.push("");
+    const queries: string[] = [];
+    for (const f of r.d.fanouts) {
+      if (f.action?.type === "search") queries.push(...searchQueries(f.action));
+    }
+    if (queries.length === 0) {
+      out.push("_No searches — the model answered without web search._");
+    } else {
+      out.push(`_${queries.length} ${queries.length === 1 ? "query" : "queries"}:_`);
+      queries.forEach((q, i) =>
+        out.push(`${i + 1}. ${q.replace(/\r?\n/g, " ").trim()}`),
+      );
     }
     out.push("");
   }
