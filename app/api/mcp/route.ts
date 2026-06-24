@@ -112,7 +112,7 @@ const toolDefinitions = [
   {
     name: "get_compare_results",
     description:
-      "Fetch structured compare results, including per-run answer output text when outputs are requested.",
+      "Fetch structured compare results. Use compact for large compares; request read_urls only when raw URL rows are needed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -121,7 +121,7 @@ const toolDefinitions = [
           type: "array",
           items: {
             type: "string",
-            enum: ["summary", "outputs", "query_fanout", "read_urls", "overlap"],
+            enum: ["summary", "outputs", "query_fanout", "compact", "read_urls", "overlap"],
           },
         },
         read_urls_limit: { type: "integer", minimum: 1, maximum: 1000 },
@@ -177,7 +177,7 @@ const toolDefinitions = [
   {
     name: "compare_runs",
     description:
-      "Deep-compare existing Thinking Inspector run IDs and pull outputs, read URLs, and overlap into context.",
+      "Deep-compare existing Thinking Inspector run IDs. Use compact for context-sized matrices/top shared pages/folders/domains; request read_urls only for raw rows.",
     inputSchema: {
       type: "object",
       properties: {
@@ -190,7 +190,7 @@ const toolDefinitions = [
           type: "array",
           items: {
             type: "string",
-            enum: ["summary", "outputs", "query_fanout", "read_urls", "overlap"],
+            enum: ["summary", "outputs", "query_fanout", "compact", "read_urls", "overlap"],
           },
         },
         read_urls_limit: { type: "integer", minimum: 1, maximum: 1000 },

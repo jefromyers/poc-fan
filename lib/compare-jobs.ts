@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { buildCompactCompare } from "@/lib/compact-compare";
 import { initDb, pool } from "@/lib/db";
 import { deriveRunState, domain, normalizeUrl } from "@/lib/derive";
 import type { StreamEvent } from "@/lib/events";
@@ -14,7 +15,7 @@ import type { CompareInput } from "@/lib/compare-export";
 import type { RunRow } from "@/lib/markdown-export";
 
 type JobStatus = "queued" | "running" | "completed" | "failed";
-type IncludeSection = "summary" | "outputs" | "query_fanout" | "read_urls" | "overlap";
+type IncludeSection = "summary" | "outputs" | "query_fanout" | "compact" | "read_urls" | "overlap";
 
 export type RunCompareArgs = {
   prompts: string[];
@@ -423,7 +424,7 @@ export async function getCompareResults(args: GetResultsArgs) {
   await markStaleJobs();
   const include = args.include?.length
     ? args.include
-    : ["summary", "outputs", "query_fanout", "read_urls"];
+    : ["summary", "query_fanout", "compact"];
   const job = await loadJob(args.job_id);
   await updateJobProgress(args.job_id);
   const prepared = await loadPreparedRuns(args.job_id);
@@ -465,8 +466,12 @@ export async function getCompareResults(args: GetResultsArgs) {
       read_url_count: graph.rowCount,
     };
   }
-  if (include.includes("outputs")) result.roles = buildRoles(prepared);
+  const roles = buildRoles(prepared);
+  if (include.includes("outputs")) result.roles = roles;
   if (include.includes("query_fanout")) result.query_fanout = graph.queryFanout;
+  if (include.includes("compact")) {
+    result.compact = buildCompactCompare(graph, roles, { topN: 25 });
+  }
   if (include.includes("read_urls")) {
     result.read_urls = pageRows(graph.rows, limit, offset);
     result.read_urls_page = {
