@@ -22,6 +22,12 @@ services:
     environment:
       DATABASE_URL: postgres://app:app@db:5432/app
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      MCP_API_TOKEN: ${MCP_API_TOKEN}
+      MCP_MAX_PROMPTS: ${MCP_MAX_PROMPTS:-12}
+      MCP_MAX_TOTAL_RUNS: ${MCP_MAX_TOTAL_RUNS:-72}
+      MCP_JOB_CONCURRENCY: ${MCP_JOB_CONCURRENCY:-2}
+      MCP_RESULT_READ_URL_LIMIT: ${MCP_RESULT_READ_URL_LIMIT:-500}
+      MCP_STALE_JOB_MINUTES: ${MCP_STALE_JOB_MINUTES:-720}
     depends_on:
       db:
         condition: service_healthy

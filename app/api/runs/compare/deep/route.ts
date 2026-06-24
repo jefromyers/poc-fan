@@ -5,6 +5,7 @@ import type { RunRow } from "@/lib/markdown-export";
 import {
   buildReadUrlGraph,
   deepCompareFilename,
+  graphFanoutToCsv,
   graphToCsv,
   graphToJson,
   graphToMarkdown,
@@ -78,6 +79,7 @@ export async function GET(req: Request) {
   const base = deepCompareFilename(inputs.map((i) => i.run));
   const zip = zipStore([
     { name: `${base}.csv`, text: graphToCsv(graph) },
+    { name: `${base}-query-fanout.csv`, text: graphFanoutToCsv(graph) },
     { name: `${base}.json`, text: graphToJson(graph) },
     { name: `${base}.md`, text: graphToMarkdown(graph) },
   ]);
