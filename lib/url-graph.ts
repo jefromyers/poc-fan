@@ -11,7 +11,7 @@
 // is isolated here — the shared normalizeUrl / existing Compare are untouched.
 
 import { parse as tldParse } from "tldts";
-import { deriveRunState } from "@/lib/derive";
+import { deriveRunState, searchQueries } from "@/lib/derive";
 import type { CompareInput } from "@/lib/compare-export";
 import {
   AUTO_FLAG,
@@ -42,12 +42,32 @@ export type GraphRow = {
 
 export type RoleLegendEntry = { role: string; run_id: string; query: string; model: string };
 
+export type QueryFanoutAction = {
+  index: number;
+  type: string;
+  status: string;
+  queries: string[];
+  url?: string;
+  pattern?: string;
+  source_count?: number;
+};
+
+export type QueryFanoutEntry = {
+  role: string;
+  run_id: string;
+  query: string;
+  model: string;
+  actions: QueryFanoutAction[];
+  search_queries: string[];
+};
+
 export type ReadUrlGraph = {
   profileVersion: string;
   generatedAt: string;
   runCount: number;
   rowCount: number;
   roleLegend: RoleLegendEntry[];
+  queryFanout: QueryFanoutEntry[];
   rows: GraphRow[];
 };
 
@@ -118,6 +138,7 @@ export function buildReadUrlGraph(
   opts: { generatedAt: string },
 ): ReadUrlGraph {
   const roleLegend: RoleLegendEntry[] = [];
+  const queryFanout: QueryFanoutEntry[] = [];
 
   // Per-run read/cited sets, graph-normalized.
   const runs = inputs.map((inp, i) => {
@@ -134,6 +155,26 @@ export function buildReadUrlGraph(
       run_id: inp.run.id,
       query: inp.run.query ?? "", // full prompt — never truncated
       model: inp.run.model,
+    });
+    const actions = d.fanouts.map((f, index) => {
+      const queries = f.action?.type === "search" && f.action ? searchQueries(f.action) : [];
+      return {
+        index: index + 1,
+        type: f.action?.type ?? "unknown",
+        status: f.status,
+        queries,
+        url: f.action?.url,
+        pattern: f.action?.pattern,
+        source_count: Array.isArray(f.action?.sources) ? f.action.sources.length : undefined,
+      };
+    });
+    queryFanout.push({
+      role,
+      run_id: inp.run.id,
+      query: inp.run.query ?? "",
+      model: inp.run.model,
+      actions,
+      search_queries: actions.flatMap((a) => a.queries),
     });
     return { role, read, cited };
   });
@@ -252,6 +293,7 @@ export function buildReadUrlGraph(
     runCount: inputs.length,
     rowCount: rows.length,
     roleLegend,
+    queryFanout,
     rows,
   };
 }
@@ -315,6 +357,61 @@ export function graphToCsv(g: ReadUrlGraph): string {
   return lines.join("\r\n") + "\r\n";
 }
 
+const FANOUT_CSV_HEADER = [
+  "role",
+  "run_id",
+  "model",
+  "prompt",
+  "action_index",
+  "action_type",
+  "status",
+  "queries",
+  "url",
+  "pattern",
+  "source_count",
+];
+
+export function graphFanoutToCsv(g: ReadUrlGraph): string {
+  const lines = [FANOUT_CSV_HEADER.join(",")];
+  for (const entry of g.queryFanout) {
+    for (const action of entry.actions) {
+      lines.push(
+        [
+          csv(entry.role),
+          csv(entry.run_id),
+          csv(entry.model),
+          csv(entry.query),
+          String(action.index),
+          csv(action.type),
+          csv(action.status),
+          csv(JSON.stringify(action.queries)),
+          csv(action.url ?? ""),
+          csv(action.pattern ?? ""),
+          action.source_count == null ? "" : String(action.source_count),
+        ].join(","),
+      );
+    }
+    if (entry.actions.length === 0) {
+      lines.push(
+        [
+          csv(entry.role),
+          csv(entry.run_id),
+          csv(entry.model),
+          csv(entry.query),
+          "",
+          "",
+          "",
+          "[]",
+          "",
+          "",
+          "",
+        ].join(","),
+      );
+    }
+  }
+  return lines.join("\r\n") + "\r\n";
+}
+
 export function graphToJson(g: ReadUrlGraph): string {
   return JSON.stringify(g, null, 2);
 }
@@ -347,6 +444,37 @@ export function graphToMarkdown(g: ReadUrlGraph): string {
     // Full prompt, verbatim — never truncated.
     out.push(blockquote(e.query || "(empty)"));
     out.push("");
+  }
+  out.push("## Query fan-out");
+  out.push("");
+  out.push(
+    "_Every web-search action each role issued, in order. This shows how the " +
+      "model framed its research before sources entered the URL graph._",
+  );
+  out.push("");
+  for (const e of g.queryFanout) {
+    out.push(`### ${e.role} — _${mdCell(e.model)}, ${e.run_id.slice(0, 8)}_`);
+    out.push("");
+    if (e.actions.length === 0) {
+      out.push("_No web-search actions recorded._");
+      out.push("");
+      continue;
+    }
+    for (const action of e.actions) {
+      const label = action.type === "search" ? "Search" : action.type;
+      out.push(`**${action.index}. ${mdCell(label)}** — ${mdCell(action.status)}`);
+      if (action.queries.length > 0) {
+        action.queries.forEach((q, i) =>
+          out.push(`${i + 1}. ${q.replace(/\r?\n/g, " ").trim()}`),
+        );
+      } else if (action.url) {
+        out.push(`- ${action.url}`);
+      } else if (action.pattern) {
+        out.push(`- ${action.pattern}`);
+      }
+      if (action.source_count != null) out.push(`- surfaced sources: ${action.source_count}`);
+      out.push("");
+    }
   }
   out.push("## URLs");
   out.push("");

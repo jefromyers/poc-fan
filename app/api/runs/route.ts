@@ -1,7 +1,7 @@
-import OpenAI from "openai";
 import { randomUUID } from "node:crypto";
 import { initDb, pool } from "@/lib/db";
 import { MODEL_CANDIDATES } from "@/lib/model-options";
+import { executeOpenAIRun, type Effort } from "@/lib/run-executor";
 
 // Node runtime: we hold a long-lived SSE connection to OpenAI and tee every
 // event to both Postgres and the browser. force-dynamic so it's never cached.
@@ -9,7 +9,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const ALLOWED_MODELS = new Set<string>(MODEL_CANDIDATES);
-type Effort = "none" | "low" | "medium" | "high" | "xhigh";
 const ALLOWED_EFFORT = new Set<string>(["none", "low", "medium", "high", "xhigh"]);
 
 // GET /api/runs — a page of recent runs for the history rail. Keyset paginated:
@@ -66,60 +65,20 @@ export async function POST(req: Request) {
     [runId, model, query, effort],
   );
 
-  // Persist an event. Errors propagate so the pump can fail the run rather than
-  // forward an event that isn't in the audit log (the DB is the source of truth).
-  const persist = async (seq: number, type: string, payload: unknown) => {
-    await pool.query(
-      "INSERT INTO events (run_id, seq, type, payload) VALUES ($1,$2,$3,$4)",
-      [runId, seq, type, JSON.stringify(payload)],
-    );
-  };
-
-  // Terminal status writes. `AND status='running'` makes this idempotent and
-  // prevents a later cancel/error from clobbering a real terminal state.
-  let finalized = false;
-  const finalize = async (status: string, response: any, errorMsg: string | null) => {
-    if (finalized) return; // first terminal state wins
-    finalized = true;
-    try {
-      await pool.query(
-        `UPDATE runs SET status=$2, final_response=$3, usage=$4, error=$5
-         WHERE id=$1 AND status='running'`,
-        [
-          runId,
-          status,
-          response ? JSON.stringify(response) : null,
-          response?.usage ? JSON.stringify(response.usage) : null,
-          errorMsg,
-        ],
-      );
-    } catch (e) {
-      console.error(`[run ${runId}] finalize(${status}) failed:`, e);
-    }
-  };
-
-  const client = new OpenAI();
   const encoder = new TextEncoder();
   const abort = new AbortController();
-
-  // Client disconnect (tab close, network drop, or the UI Stop button aborting
-  // its fetch) fires req.signal — abort the upstream request so we stop
-  // consuming/billing OpenAI tokens. cancel() below is a belt-and-suspenders.
-  // On client disconnect: abort the OpenAI request (stops billing) AND finalize
-  // here. We can't rely on the pump's catch — this SDK's async iterator can hang
-  // instead of rejecting when its request is aborted, freezing the pump.
-  const onDisconnect = () => {
-    abort.abort();
-    void finalize("cancelled", null, null);
-  };
-  req.signal.addEventListener("abort", onDisconnect);
+  const abortRun = () => abort.abort();
+  req.signal.addEventListener("abort", abortRun, { once: true });
 
   let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
   const stream = new ReadableStream<Uint8Array>({
     start(c) {
       controller = c;
     },
-    cancel: onDisconnect,
+    cancel() {
+      abortRun();
+      controller = null;
+    },
   });
 
   const send = (obj: unknown) => {
@@ -140,88 +99,29 @@ export async function POST(req: Request) {
     controller = null;
   };
 
-  // Detached pump: deliberately NOT awaited and NOT tied to the response
-  // stream, so it runs to a terminal state (persisting every event, then
-  // finalizing runs.status) even after the client disconnects. `next start` is
-  // a long-lived Node server, so this background task keeps running.
+  // Detached pump: deliberately NOT awaited by the route response. Browser
+  // disconnects still abort this UI-initiated run so we stop upstream work.
   void (async () => {
     send({ type: "run.created", run_id: runId });
-    let seq = 0;
     try {
-      const params: OpenAI.Responses.ResponseCreateParamsStreaming = {
+      const result = await executeOpenAIRun({
+        runId,
         model,
-        input: query,
-        stream: true,
-        // This SDK version's reasoning effort union lags the documented values
-        // exposed in the UI (`none` and `xhigh`), so keep the escape localized.
-        // summary: "detailed" — community-used value that produces more verbose
-        // reasoning summaries than the doc-canonical "auto". This is a Thinking
-        // Inspector tool; more visibility is the point.
-        reasoning: { effort: effort as any, summary: "detailed" as any },
-        // Two fields where this SDK version's types lag the live API (both
-        // verified working at runtime): the tool is "web_search" (SDK only
-        // types "web_search_preview"), and the include literal below isn't in
-        // the union yet. Escapes are localized so the rest stays type-checked.
-        tools: [{ type: "web_search" } as any],
-        // @ts-expect-error - include literal not in this SDK version's union.
-        include: ["web_search_call.action.sources"],
-      };
-      const events = await client.responses.create(params, { signal: abort.signal });
-
-      // Drive the iterator manually and race each step against the abort signal:
-      // when aborted, this SDK's iterator hangs instead of rejecting, so racing
-      // lets the pump break cleanly (run its finally) rather than leak frozen.
-      const iterator = events[Symbol.asyncIterator]();
-      const aborted = new Promise<{ done: true }>((resolve) =>
-        abort.signal.addEventListener("abort", () => resolve({ done: true })),
-      );
-
-      while (true) {
-        const result: any = await Promise.race([iterator.next(), aborted]);
-        if (result.done) break;
-        const ev = result.value;
-        const type = typeof ev?.type === "string" ? ev.type.trim() : "";
-        if (!type) {
-          console.warn("runs: untyped event", JSON.stringify(ev));
-          continue;
-        }
-        const s = typeof ev.sequence_number === "number" ? ev.sequence_number : seq++;
-
-        // Persist BEFORE forwarding so the DB is the source of truth: the
-        // browser never sees an event that isn't already in the audit log. If
-        // the insert fails, fail the run rather than forward an unstored event.
-        try {
-          await persist(s, type, ev);
-        } catch (e: any) {
-          const message = `persistence failed: ${e?.message ?? String(e)}`;
-          await finalize("failed", null, message);
-          send({ type: "stream.error", error: message });
-          return; // stop forwarding; skip the stream.done below
-        }
-        send(ev);
-
-        if (type === "response.completed") await finalize("completed", ev.response, null);
-        else if (type === "response.incomplete") await finalize("incomplete", ev.response, null);
-        else if (type === "response.failed")
-          await finalize("failed", ev.response, ev.response?.error?.message ?? "response failed");
-      }
-
-      if (abort.signal.aborted) {
-        await finalize("cancelled", null, null); // guarded; onDisconnect usually ran first
-      } else {
+        query,
+        effort,
+        signal: abort.signal,
+        onEvent: send,
+      });
+      if (result.status !== "cancelled" && result.status !== "failed") {
         send({ type: "stream.done" });
+      } else {
+        if (result.error) send({ type: "stream.error", error: result.error });
       }
     } catch (err: any) {
-      if (abort.signal.aborted) {
-        // Disconnect / Stop — not a failure. Events consumed before the abort
-        // were already persisted above.
-        await finalize("cancelled", null, null);
-      } else {
-        const message = err?.message ?? String(err);
-        await finalize("failed", null, message);
-        send({ type: "stream.error", error: message });
-      }
+      const message = err?.message ?? String(err);
+      send({ type: "stream.error", error: message });
     } finally {
+      req.signal.removeEventListener("abort", abortRun);
       closeStream();
     }
   })();

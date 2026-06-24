@@ -31,6 +31,38 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS events_run_seq_idx ON events (run_id, seq);
+
+CREATE TABLE IF NOT EXISTS compare_jobs (
+  id                uuid PRIMARY KEY,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  label             text,
+  status            text NOT NULL DEFAULT 'queued',
+  model             text NOT NULL,
+  effort            text,
+  profile_version   text NOT NULL,
+  prompt_count      integer NOT NULL,
+  runs_per_prompt   integer NOT NULL,
+  total_runs        integer NOT NULL,
+  runs_done         integer NOT NULL DEFAULT 0,
+  error             text
+);
+
+CREATE TABLE IF NOT EXISTS compare_job_runs (
+  job_id        uuid NOT NULL REFERENCES compare_jobs(id),
+  run_id        uuid NOT NULL REFERENCES runs(id),
+  role          text NOT NULL,
+  prompt_role   text NOT NULL,
+  prompt_index  integer NOT NULL,
+  repeat_index  integer NOT NULL,
+  query         text NOT NULL,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (job_id, run_id)
+);
+
+CREATE INDEX IF NOT EXISTS compare_jobs_created_idx ON compare_jobs (created_at DESC);
+CREATE INDEX IF NOT EXISTS compare_job_runs_job_idx ON compare_job_runs (job_id);
+CREATE INDEX IF NOT EXISTS compare_job_runs_run_idx ON compare_job_runs (run_id);
 `;
 
 // Idempotent; runs once per process. Awaited at the top of the API route so the
