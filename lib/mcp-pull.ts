@@ -1,3 +1,4 @@
+import { buildCompactCompare } from "@/lib/compact-compare";
 import { initDb, pool } from "@/lib/db";
 import { deriveRunState, domain, normalizeUrl } from "@/lib/derive";
 import type { StreamEvent } from "@/lib/events";
@@ -9,7 +10,7 @@ import {
   type ReadUrlGraph,
 } from "@/lib/url-graph";
 
-type PullInclude = "summary" | "outputs" | "query_fanout" | "read_urls" | "overlap";
+type PullInclude = "summary" | "outputs" | "query_fanout" | "compact" | "read_urls" | "overlap";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const keyFor = (i: number) => LETTERS[i] ?? `#${i + 1}`;
@@ -239,7 +240,7 @@ export async function compareRunsForPull(args: {
 
   const include = args.include?.length
     ? args.include
-    : ["summary", "outputs", "query_fanout", "read_urls"];
+    : ["summary", "query_fanout", "compact"];
   const prepared = await loadRuns(runIds);
   if (prepared.length < 2) throw new Error("fewer than two run_ids matched stored runs");
 
@@ -276,8 +277,12 @@ export async function compareRunsForPull(args: {
       read_url_count: graph.rowCount,
     };
   }
-  if (include.includes("outputs")) result.roles = roleOutputs(prepared);
+  const roles = roleOutputs(prepared);
+  if (include.includes("outputs")) result.roles = roles;
   if (include.includes("query_fanout")) result.query_fanout = graph.queryFanout;
+  if (include.includes("compact")) {
+    result.compact = buildCompactCompare(graph, roles, { topN: 25 });
+  }
   if (include.includes("read_urls")) {
     result.read_urls = pageRows(graph.rows, limit, offset);
     result.read_urls_page = {

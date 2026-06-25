@@ -56,8 +56,9 @@ models, and prompt previews so I can choose which ones to pull in.
 
 ```text
 Use thinking-inspector to search runs for "secure boot". Then compare the three
-most relevant completed run IDs with outputs, query fan-out, read URLs, and
-overlap.
+most relevant completed run IDs with summary, query fan-out, and compact
+overlap. Do not request raw read URLs, full outputs, or detailed overlap unless
+I ask for them.
 ```
 
 ```text
