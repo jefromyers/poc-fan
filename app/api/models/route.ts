@@ -17,7 +17,10 @@ export async function GET() {
     const models = await client.models.list();
     const available = new Set(models.data.map((m) => m.id));
     const selectable = MODEL_CANDIDATES.filter((id) => available.has(id));
-    const result = selectable.length > 0 ? selectable : [...DOCUMENTED_MODEL_FALLBACK];
+    // Model discovery can omit documented aliases such as `gpt-5.6`, even
+    // though the alias is valid for Responses API requests. Always retain the
+    // documented model list and use discovery to add accessible older models.
+    const result = [...new Set([...DOCUMENTED_MODEL_FALLBACK, ...selectable])];
     cache = { expiresAt: Date.now() + CACHE_MS, models: result };
     return Response.json({ models: result });
   } catch {
