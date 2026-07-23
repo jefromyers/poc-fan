@@ -854,34 +854,44 @@ export default function Home() {
                 <Empty>No sources consulted yet.</Empty>
               ) : (
                 <ul className="space-y-3 text-sm">
-                  {sources.map((s) => (
-                    <li key={s.url} className="flex min-w-0 items-start gap-2">
-                      <Globe
-                        className="mt-0.5 h-4 w-4 shrink-0 text-cl-blue"
-                        aria-hidden="true"
-                        strokeWidth={1.75}
-                      />
-                      <div className="min-w-0">
-                        <a
-                          href={s.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={`inline-flex max-w-full items-center gap-1 font-medium text-cl-blue hover:underline ${focusRing}`}
-                        >
-                          <span className="truncate">{s.title || s.url}</span>
-                          <ExternalLink
-                            className="h-3.5 w-3.5 shrink-0"
-                            aria-hidden="true"
-                            strokeWidth={1.75}
-                          />
-                          <span className="sr-only">(opens in new tab)</span>
-                        </a>
-                        <div className="truncate text-xs text-slate-500">
-                          {domain(s.url)}
+                  {sources.map((s) => {
+                    const isCited = citedUrls.has(normalizeUrl(s.url));
+                    return (
+                      <li key={s.url} className="flex min-w-0 items-start gap-2">
+                        <Globe
+                          className="mt-0.5 h-4 w-4 shrink-0 text-cl-blue"
+                          aria-hidden="true"
+                          strokeWidth={1.75}
+                        />
+                        <div className="min-w-0">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <a
+                              href={s.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={`inline-flex min-w-0 items-center gap-1 font-medium text-cl-blue hover:underline ${focusRing}`}
+                            >
+                              <span className="truncate">{s.title || s.url}</span>
+                              <ExternalLink
+                                className="h-3.5 w-3.5 shrink-0"
+                                aria-hidden="true"
+                                strokeWidth={1.75}
+                              />
+                              <span className="sr-only">(opens in new tab)</span>
+                            </a>
+                            {isCited && (
+                              <span className="shrink-0 rounded-[3px] bg-cl-ice px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cl-blue">
+                                Cited
+                              </span>
+                            )}
+                          </div>
+                          <div className="truncate text-xs text-slate-500">
+                            {domain(s.url)}
+                          </div>
                         </div>
-                      </div>
-                    </li>
-                  ))}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </Panel>
