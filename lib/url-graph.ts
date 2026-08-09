@@ -20,7 +20,7 @@ import {
   type SiteProfile,
 } from "@/lib/site-profiles";
 
-export type PerRole = { role: string; cited: boolean };
+export type PerRole = { role: string; cited: boolean; opened: boolean };
 
 export type GraphRow = {
   url: string;
@@ -37,6 +37,7 @@ export type GraphRow = {
   high_volume_flag: boolean;
   flag_source: "profile" | "auto" | null;
   cited_any: boolean;
+  opened_any: boolean;
   per_role: PerRole[];
 };
 
@@ -131,6 +132,7 @@ type Accum = {
   registrable: string;
   perRole: PerRole[]; // one entry per run that read it (input order)
   citedAny: boolean;
+  openedAny: boolean;
 };
 
 export function buildReadUrlGraph(
@@ -140,7 +142,7 @@ export function buildReadUrlGraph(
   const roleLegend: RoleLegendEntry[] = [];
   const queryFanout: QueryFanoutEntry[] = [];
 
-  // Per-run read/cited sets, graph-normalized.
+  // Per-run read/opened/cited sets, graph-normalized.
   const runs = inputs.map((inp, i) => {
     const role = keyFor(i);
     const d = deriveRunState(inp.events);
@@ -150,6 +152,8 @@ export function buildReadUrlGraph(
     }
     const cited = new Set<string>();
     for (const u of d.citedUrls) cited.add(graphNorm(u));
+    const opened = new Set<string>();
+    for (const u of d.openedUrls) opened.add(graphNorm(u));
     roleLegend.push({
       role,
       run_id: inp.run.id,
@@ -176,7 +180,7 @@ export function buildReadUrlGraph(
       actions,
       search_queries: actions.flatMap((a) => a.queries),
     });
-    return { role, read, cited };
+    return { role, read, cited, opened };
   });
 
   // Pass A: accumulate per distinct url across the group.
@@ -192,12 +196,21 @@ export function buildReadUrlGraph(
           registrable = tldParse(host).domain ?? host;
           hostCache.set(host, registrable);
         }
-        a = { url, host, registrable, perRole: [], citedAny: false };
+        a = {
+          url,
+          host,
+          registrable,
+          perRole: [],
+          citedAny: false,
+          openedAny: false,
+        };
         acc.set(url, a);
       }
       const cited = r.cited.has(url);
-      a.perRole.push({ role: r.role, cited });
+      const opened = r.opened.has(url);
+      a.perRole.push({ role: r.role, cited, opened });
       if (cited) a.citedAny = true;
+      if (opened) a.openedAny = true;
     }
   }
 
@@ -274,6 +287,7 @@ export function buildReadUrlGraph(
     high_volume_flag: r.high_volume_flag,
     flag_source: r.flag_source,
     cited_any: r.citedAny,
+    opened_any: r.openedAny,
     per_role: r.perRole,
   }));
 

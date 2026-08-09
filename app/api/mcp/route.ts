@@ -112,7 +112,7 @@ const toolDefinitions = [
   {
     name: "get_compare_results",
     description:
-      "Fetch structured compare results. Use compact for large compares; request read_urls only when raw URL rows are needed.",
+      "Fetch structured compare results. Use compact for large compares; request read_urls for raw URL rows with cited_any/opened_any and per_role cited/opened flags.",
     inputSchema: {
       type: "object",
       properties: {
@@ -177,7 +177,7 @@ const toolDefinitions = [
   {
     name: "compare_runs",
     description:
-      "Deep-compare existing Thinking Inspector run IDs. Use compact for context-sized matrices/top shared pages/folders/domains; request read_urls only for raw rows.",
+      "Deep-compare existing Thinking Inspector run IDs. Use compact for context-sized matrices/top shared pages/folders/domains; request read_urls for raw rows with cited_any/opened_any and per_role cited/opened flags.",
     inputSchema: {
       type: "object",
       properties: {
