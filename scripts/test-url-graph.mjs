@@ -65,6 +65,7 @@ const A = {
     ]),
     open("o1", "https://www.fda.gov/vaccines-blood-biologics/safety/warning"),
     cite("https://www.fda.gov/vaccines-blood-biologics/safety/warning"),
+    cite("https://eur-lex.europa.eu/eli/reg/2024/2847/oj"),
   ],
 };
 // Run B: shares the FDA page (not cited), plus a unique gov.uk page, plus a
@@ -76,6 +77,7 @@ const B = {
       "https://www.fda.gov/vaccines-blood-biologics/safety/warning#section-2",
       "https://www.service.gov.uk/guidance/foo",
     ]),
+    open("o2", "https://www.service.gov.uk/guidance/foo"),
   ],
 };
 
@@ -86,18 +88,30 @@ const must = (cond, label) => { console.log((cond ? "PASS" : "FAIL") + " — " +
 
 const byUrl = (frag) => g.rows.find((r) => r.url.includes(frag));
 
-// 1. FDA page: read by both A and B (fragment collapsed), cited only by A.
+// 1. FDA page: read by both A and B (fragment collapsed), opened/cited only by A.
 const fda = byUrl("/vaccines-blood-biologics/safety/warning");
 must(fda && fda.runs_read === 2, "FDA page read by 2 runs (fragment + utm collapsed)");
 must(fda && fda.cited_any === true, "FDA page cited_any true");
-must(fda && fda.per_role.find((p) => p.role === "A")?.cited === true && fda.per_role.find((p) => p.role === "B")?.cited === false, "FDA per_role: A cited, B not");
+must(fda && fda.opened_any === true, "FDA page opened_any true");
+must(
+  fda &&
+    fda.per_role.find((p) => p.role === "A")?.cited === true &&
+    fda.per_role.find((p) => p.role === "A")?.opened === true &&
+    fda.per_role.find((p) => p.role === "B")?.cited === false &&
+    fda.per_role.find((p) => p.role === "B")?.opened === false,
+  "FDA per_role: A opened/cited, B neither",
+);
 must(fda && fda.registrable_domain === "fda.gov" && fda.site_type === "regulator", "FDA registrable=fda.gov, site_type=regulator");
 
-// 2. PSL: gov.uk resolves to service.gov.uk, europa.eu correct.
+// 2. Opened-only and cited-only states survive into aggregate rows.
 const govuk = byUrl("service.gov.uk");
 must(govuk && govuk.registrable_domain === "service.gov.uk", "gov.uk eTLD+1 = service.gov.uk (PSL)");
+must(govuk && govuk.opened_any === true && govuk.cited_any === false, "gov.uk opened but not cited");
+must(govuk && govuk.per_role[0]?.opened === true && govuk.per_role[0]?.cited === false, "gov.uk per_role opened-only");
 const eurlex = byUrl("eur-lex.europa.eu");
 must(eurlex && eurlex.registrable_domain === "europa.eu" && eurlex.site_type === "regulator", "eur-lex → europa.eu regulator (host profile)");
+must(eurlex && eurlex.opened_any === false && eurlex.cited_any === true, "eur-lex cited but not opened");
+must(eurlex && eurlex.per_role[0]?.opened === false && eurlex.per_role[0]?.cited === true, "eur-lex per_role cited-only");
 
 // 3. reddit profiled as hub/scraper, weight 0.2, high_volume.
 const reddit = g.rows.find((r) => r.registrable_domain === "reddit.com");
@@ -132,6 +146,8 @@ must(graphToCsv(g2).includes('"https://ex.com/a,b'), "CSV quotes URL containing 
 // 9. JSON parses and round-trips rowCount.
 const parsed = JSON.parse(graphToJson(g));
 must(parsed.rows.length === 23 && parsed.profileVersion && parsed.roleLegend.length === 2, "JSON valid, roleLegend present");
+must(parsed.rows.every((row) => typeof row.opened_any === "boolean"), "JSON rows include opened_any");
+must(parsed.rows.every((row) => row.per_role.every((role) => typeof role.opened === "boolean")), "JSON per_role rows include opened");
 
 // 10. Markdown contains all rows (no truncation) + roles section.
 const md = graphToMarkdown(g);
